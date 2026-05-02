@@ -25,6 +25,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _message = "Ready";
     private string _selectedRemarkDraft = string.Empty;
     private DateTime? _completionDate = DateTime.Today;
+    private ObservableCollection<string> _categories = [AllFilter];
+    private ObservableCollection<string> _types = [AllFilter];
 
     public MainViewModel()
     {
@@ -40,8 +42,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public ICollectionView TasksView { get; }
-    public ObservableCollection<string> Categories { get; } = [AllFilter];
-    public ObservableCollection<string> Types { get; } = [AllFilter];
+    public ObservableCollection<string> Categories
+    {
+        get => _categories;
+        private set
+        {
+            _categories = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ObservableCollection<string> Types
+    {
+        get => _types;
+        private set
+        {
+            _types = value;
+            OnPropertyChanged();
+        }
+    }
+
     public string[] Statuses { get; } = [AllFilter, "Normal", "Warning", "Expired"];
     public string[] DayLeftFilters { get; } = [AllFilter, "Overdue", "Due today", "Next 7 days", "More than 7 days"];
 
@@ -496,11 +516,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void RebuildFilterLists()
     {
-        RebuildList(Categories, _tasks.Select(task => task.Category));
-        RebuildList(Types, _tasks.Select(task => task.Type));
+        Categories = BuildFilterList(_tasks.Select(task => task.Category));
+        Types = BuildFilterList(_tasks.Select(task => task.Type));
+        RestoreDynamicFilterSelections();
     }
 
-    private static void RebuildList(ObservableCollection<string> target, IEnumerable<string> values)
+    private void RestoreDynamicFilterSelections()
+    {
+        _categoryFilter = Categories.Contains(_categoryFilter) ? _categoryFilter : AllFilter;
+        _typeFilter = Types.Contains(_typeFilter) ? _typeFilter : AllFilter;
+        OnPropertyChanged(nameof(CategoryFilter));
+        OnPropertyChanged(nameof(TypeFilter));
+    }
+
+    private static ObservableCollection<string> BuildFilterList(IEnumerable<string> values)
     {
         var selectedValues = values
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -508,12 +537,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        target.Clear();
-        target.Add(AllFilter);
+        var filterValues = new ObservableCollection<string> { AllFilter };
         foreach (var value in selectedValues)
         {
-            target.Add(value);
+            filterValues.Add(value);
         }
+
+        return filterValues;
     }
 
     private bool FilterTask(object item)

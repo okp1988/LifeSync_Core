@@ -166,37 +166,25 @@
                 <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,12,0">
                     <TextBlock Text="Category" Margin="0,0,0,5" FontWeight="SemiBold" />
                     <ComboBox ItemsSource="{Binding Categories}"
-                              SelectedItem="{Binding CategoryFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                              Text="{Binding CategoryFilter}"
-                              IsEditable="True"
-                              IsReadOnly="True" />
+                              SelectedValue="{Binding CategoryFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,12,0">
                     <TextBlock Text="Type" Margin="0,0,0,5" FontWeight="SemiBold" />
                     <ComboBox ItemsSource="{Binding Types}"
-                              SelectedItem="{Binding TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                              Text="{Binding TypeFilter}"
-                              IsEditable="True"
-                              IsReadOnly="True" />
+                              SelectedValue="{Binding TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,12,0">
                     <TextBlock Text="Day Left" Margin="0,0,0,5" FontWeight="SemiBold" />
                     <ComboBox ItemsSource="{Binding DayLeftFilters}"
-                              SelectedItem="{Binding DayLeftFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                              Text="{Binding DayLeftFilter}"
-                              IsEditable="True"
-                              IsReadOnly="True" />
+                              SelectedItem="{Binding DayLeftFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Grid.Column="3" Margin="0,0,12,0">
                     <TextBlock Text="Status" Margin="0,0,0,5" FontWeight="SemiBold" />
                     <ComboBox ItemsSource="{Binding Statuses}"
-                              SelectedItem="{Binding StatusFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                              Text="{Binding StatusFilter}"
-                              IsEditable="True"
-                              IsReadOnly="True" />
+                              SelectedItem="{Binding StatusFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                 </StackPanel>
 
                 <Button Grid.Row="1"
