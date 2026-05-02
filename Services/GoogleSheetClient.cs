@@ -22,7 +22,7 @@ public sealed class GoogleSheetClient
         return ParseTasks(body);
     }
 
-    public async Task CompleteAsync(AppConfig config, SheetTask task, DateTime executeDate, CancellationToken cancellationToken)
+    public async Task CompleteAsync(AppConfig config, SheetTask task, DateTime executeDate, string remark, CancellationToken cancellationToken)
     {
         var parameters = new Dictionary<string, string>
         {
@@ -30,7 +30,7 @@ public sealed class GoogleSheetClient
             ["token"] = config.ApiKey,
             ["rowid"] = task.RowNumber.ToString(),
             ["executedate"] = executeDate.ToString("yyyy-MM-dd"),
-            ["remark"] = task.Remark
+            ["remark"] = remark
         };
 
         using var content = new FormUrlEncodedContent(parameters);

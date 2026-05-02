@@ -1,4 +1,4 @@
-# LifeSync Task Client
+# Life Sync Personal Tracker
 
 Windows WPF app for reading task rows from a Google Sheet, caching them locally as JSON, editing the selected task remark, and marking a task complete.
 

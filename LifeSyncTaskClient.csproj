@@ -6,9 +6,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <AssemblyTitle>Life Sync Personal Tracker</AssemblyTitle>
+    <Product>Life Sync Personal Tracker</Product>
   </PropertyGroup>
 
   <ItemGroup>
+    <Resource Include="Assets\AppIcon.ico" />
+
     <None Update="appsettings.sample.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

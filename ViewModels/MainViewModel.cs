@@ -9,18 +9,21 @@ namespace LifeSyncTaskClient.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
+    private const string AllFilter = "ALL";
     private readonly JsonFileStore _fileStore = new();
     private readonly GoogleSheetClient _sheetClient = new();
     private readonly ObservableCollection<SheetTask> _tasks = [];
     private AppConfig _config = new();
     private SheetTask? _selectedTask;
-    private string _categoryFilter = "All";
-    private string _typeFilter = "All";
-    private string _statusFilter = "All";
-    private string _dayLeftFilter = "All";
+    private string _categoryFilter = AllFilter;
+    private string _typeFilter = AllFilter;
+    private string _statusFilter = AllFilter;
+    private string _dayLeftFilter = AllFilter;
     private bool _isLoadingTasks;
     private bool _isMarkingComplete;
+    private bool _isTaskSidebarOpen;
     private string _message = "Ready";
+    private string _selectedRemarkDraft = string.Empty;
     private DateTime? _completionDate = DateTime.Today;
 
     public MainViewModel()
@@ -33,18 +36,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RefreshCalculatedFieldsCommand = new RelayCommand(RefreshCalculatedFieldsAsync);
         MarkCompleteCommand = new RelayCommand(MarkCompleteAsync, CanMutateSelectedTask);
         ClearFiltersCommand = new RelayCommand(ClearFiltersAsync);
+        CloseTaskSidebarCommand = new RelayCommand(CloseTaskSidebarAsync);
     }
 
     public ICollectionView TasksView { get; }
-    public ObservableCollection<string> Categories { get; } = ["All"];
-    public ObservableCollection<string> Types { get; } = ["All"];
-    public string[] Statuses { get; } = ["All", "Normal", "Warning", "Expired"];
-    public string[] DayLeftFilters { get; } = ["All", "Overdue", "Due today", "Next 7 days", "More than 7 days"];
+    public ObservableCollection<string> Categories { get; } = [AllFilter];
+    public ObservableCollection<string> Types { get; } = [AllFilter];
+    public string[] Statuses { get; } = [AllFilter, "Normal", "Warning", "Expired"];
+    public string[] DayLeftFilters { get; } = [AllFilter, "Overdue", "Due today", "Next 7 days", "More than 7 days"];
 
     public RelayCommand RequestTasksCommand { get; }
     public RelayCommand RefreshCalculatedFieldsCommand { get; }
     public RelayCommand MarkCompleteCommand { get; }
     public RelayCommand ClearFiltersCommand { get; }
+    public RelayCommand CloseTaskSidebarCommand { get; }
 
     public string GoogleAppsScriptUrl
     {
@@ -103,7 +108,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             _selectedTask = value;
+            SelectedRemarkDraft = value?.Remark ?? string.Empty;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedTaskPath));
+            OnPropertyChanged(nameof(SelectedTaskDateDisplay));
+            OnPropertyChanged(nameof(SelectedTaskDayLeftDisplay));
+            IsTaskSidebarOpen = value is not null;
             RefreshCommands();
         }
     }
@@ -190,6 +200,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool IsBusy => IsLoadingTasks || IsMarkingComplete;
 
+    public bool IsTaskSidebarOpen
+    {
+        get => _isTaskSidebarOpen;
+        private set
+        {
+            if (_isTaskSidebarOpen == value)
+            {
+                return;
+            }
+
+            _isTaskSidebarOpen = value;
+            OnPropertyChanged();
+        }
+    }
+
     public string Message
     {
         get => _message;
@@ -202,6 +227,93 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _message = value;
             OnPropertyChanged();
+        }
+    }
+
+    public string SelectedRemarkDraft
+    {
+        get => _selectedRemarkDraft;
+        set
+        {
+            if (_selectedRemarkDraft == value)
+            {
+                return;
+            }
+
+            _selectedRemarkDraft = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string SelectedTaskPath
+    {
+        get
+        {
+            if (SelectedTask is null)
+            {
+                return string.Empty;
+            }
+
+            return string.Join(" / ", new[] { SelectedTask.Category, SelectedTask.Type, SelectedTask.Task }
+                .Where(value => !string.IsNullOrWhiteSpace(value)));
+        }
+    }
+
+    public string SelectedTaskDateDisplay
+    {
+        get
+        {
+            if (SelectedTask is null)
+            {
+                return string.Empty;
+            }
+
+            var expiredDate = SelectedTask.ExpiredDate?.Date;
+            var warningDate = SelectedTask.WarningDate?.Date;
+            var lastExecutedDate = SelectedTask.PreviousDate1?.Date;
+
+            if (expiredDate is null && warningDate is null && lastExecutedDate is null)
+            {
+                return "No dates";
+            }
+
+            string leD = "";
+            if (lastExecutedDate is not null)
+            {
+                leD = $" / L: {FormatDate(lastExecutedDate.Value)}";
+            }
+
+            if (expiredDate is not null && warningDate is not null && expiredDate == warningDate)
+            {
+                return $"E: {FormatDate(expiredDate.Value)}{leD}";
+            }
+
+            if (expiredDate is not null && warningDate is not null)
+            {
+                return $"E: {FormatDate(expiredDate.Value)} / W: {FormatDate(warningDate.Value)}{leD}";
+            }
+
+            if (expiredDate is not null || warningDate is not null)
+            {
+                return $"{FormatDate((expiredDate ?? warningDate)!.Value)}{leD}";
+            }
+
+            return $"L: {FormatDate(lastExecutedDate!.Value)}";
+        }
+    }
+
+    public string SelectedTaskDayLeftDisplay
+    {
+        get
+        {
+            return SelectedTask?.DayLeft switch
+            {
+                null => string.Empty,
+                < 0 => $"({Math.Abs(SelectedTask.DayLeft.Value)} day(s) overdue)",
+                0 => "(due today)",
+                1 => "(1 day left)",
+                var days => $"({days} days left)"
+            };
         }
     }
 
@@ -294,7 +406,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             await SaveConfigAsync();
-            await _sheetClient.CompleteAsync(_config, taskToComplete, CompletionDate ?? DateTime.Today, CancellationToken.None);
+            await _sheetClient.CompleteAsync(_config, taskToComplete, CompletionDate ?? DateTime.Today, SelectedRemarkDraft, CancellationToken.None);
 
             _tasks.Remove(taskToComplete);
             await _fileStore.SaveTasksAsync(_tasks);
@@ -321,6 +433,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return Task.CompletedTask;
     }
 
+    private Task CloseTaskSidebarAsync()
+    {
+        IsTaskSidebarOpen = false;
+        SelectedTask = null;
+        SelectedRemarkDraft = string.Empty;
+        return Task.CompletedTask;
+    }
+
     private async Task RefreshCalculatedFieldsAsync()
     {
         foreach (var task in _tasks)
@@ -337,10 +457,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ResetFilters()
     {
-        CategoryFilter = "All";
-        TypeFilter = "All";
-        StatusFilter = "All";
-        DayLeftFilter = "All";
+        _categoryFilter = AllFilter;
+        _typeFilter = AllFilter;
+        _statusFilter = AllFilter;
+        _dayLeftFilter = AllFilter;
+        OnPropertyChanged(nameof(CategoryFilter));
+        OnPropertyChanged(nameof(TypeFilter));
+        OnPropertyChanged(nameof(StatusFilter));
+        OnPropertyChanged(nameof(DayLeftFilter));
         TasksView.Refresh();
     }
 
@@ -385,7 +509,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             .ToList();
 
         target.Clear();
-        target.Add("All");
+        target.Add(AllFilter);
         foreach (var value in selectedValues)
         {
             target.Add(value);
@@ -407,12 +531,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private static bool Matches(string filter, string value)
     {
-        return filter == "All" || string.Equals(filter, value, StringComparison.OrdinalIgnoreCase);
+        return filter == AllFilter || string.Equals(filter, value, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeFilter(string? value)
     {
-        return string.IsNullOrWhiteSpace(value) ? "All" : value;
+        return string.IsNullOrWhiteSpace(value) ? AllFilter : value;
+    }
+
+    private static string FormatDate(DateTime date)
+    {
+        return date.ToString("yyyy-MM-dd");
     }
 
     private bool MatchesDayLeft(int? dayLeft)
