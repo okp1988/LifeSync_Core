@@ -62,7 +62,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string[] Statuses { get; } = [AllFilter, "Normal", "Warning", "Expired"];
+    public string[] Statuses { get; } = [AllFilter, "Normal", "Warning", "Expired", "Completed"];
     public string[] DayLeftFilters { get; } = [AllFilter, "Overdue", "Due today", "Next 7 days", "More than 7 days"];
 
     public RelayCommand RequestTasksCommand { get; }
@@ -129,6 +129,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _selectedTask = value;
             SelectedRemarkDraft = value?.Remark ?? string.Empty;
+            CompletionDate = DateTime.Today;
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedTaskPath));
             OnPropertyChanged(nameof(SelectedTaskDateDisplay));
@@ -428,13 +429,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await SaveConfigAsync();
             await _sheetClient.CompleteAsync(_config, taskToComplete, CompletionDate ?? DateTime.Today, SelectedRemarkDraft, CancellationToken.None);
 
-            _tasks.Remove(taskToComplete);
+            taskToComplete.Completed = true;
+            taskToComplete.Remark = SelectedRemarkDraft;
+            taskToComplete.LastExecutedDate = CompletionDate ?? DateTime.Today;
+            taskToComplete.NotifyCalculatedFieldsChanged();
             await _fileStore.SaveTasksAsync(_tasks);
             RebuildFilterLists();
-            SelectedTask = null;
             TasksView.Refresh();
-            AppLogger.Info($"Completed row {taskToComplete.RowNumber} and removed it from local cache");
-            Message = "Completed in Google Sheet and removed from local JSON cache.";
+            AppLogger.Info($"Completed row {taskToComplete.RowNumber} and kept it in local cache as completed");
+            Message = "Completed in Google Sheet. The task is marked Completed locally; press Request when you want to refresh from Google Sheet.";
         }
         catch (Exception ex)
         {
@@ -590,7 +593,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private bool CanMutateSelectedTask()
     {
-        return !IsBusy && SelectedTask is not null;
+        return !IsBusy && SelectedTask is not null && !SelectedTask.Completed;
     }
 
     private void SetBusyFlag(ref bool field, bool value, [CallerMemberName] string? propertyName = null)

@@ -61,6 +61,9 @@
                 <DataTrigger Binding="{Binding Status}" Value="Warning">
                     <Setter Property="Foreground" Value="#7A4A00" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Completed">
+                    <Setter Property="Foreground" Value="#1F7A46" />
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -74,6 +77,10 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Warning">
                     <Setter Property="Foreground" Value="#7A4A00" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Completed">
+                    <Setter Property="Foreground" Value="#1F7A46" />
                     <Setter Property="FontWeight" Value="SemiBold" />
                 </DataTrigger>
             </Style.Triggers>
@@ -92,6 +99,9 @@
                 <DataTrigger Binding="{Binding SelectedTask.Status}" Value="Normal">
                     <Setter Property="Foreground" Value="#1F7A46" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedTask.Status}" Value="Completed">
+                    <Setter Property="Foreground" Value="#1F7A46" />
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -102,6 +112,9 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Warning">
                     <Setter Property="Background" Value="#FFF6D8" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Completed">
+                    <Setter Property="Background" Value="#EAF7EF" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>

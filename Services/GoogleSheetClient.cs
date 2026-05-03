@@ -243,6 +243,7 @@ public sealed class GoogleSheetClient
                 Task = taskName,
                 ExpiredDate = GetDate(row, 3),
                 WarningDate = GetDate(row, 4),
+                Completed = GetBoolean(row, 9),
                 PreviousDate1 = GetDate(row, 6),
                 PreviousDate2 = GetDate(row, 7),
                 Remark = GetString(row, 8)
@@ -277,5 +278,32 @@ public sealed class GoogleSheetClient
     {
         var value = GetString(row, index);
         return DateTime.TryParse(value, out var date) ? date : null;
+    }
+
+    private static bool GetBoolean(JsonElement row, int index)
+    {
+        if (index >= row.GetArrayLength())
+        {
+            return false;
+        }
+
+        var value = row[index];
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Number => value.TryGetInt32(out var number) && number != 0,
+            JsonValueKind.String => IsTruthy(value.GetString()),
+            _ => false
+        };
+    }
+
+    private static bool IsTruthy(string? value)
+    {
+        return value is not null
+            && (bool.TryParse(value, out var parsed) && parsed
+                || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "y", StringComparison.OrdinalIgnoreCase)
+                || value == "1");
     }
 }

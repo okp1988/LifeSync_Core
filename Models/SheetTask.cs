@@ -15,6 +15,7 @@ public sealed class SheetTask : INotifyPropertyChanged
     public DateTime? WarningDate { get; set; }
     public DateTime? PreviousDate1 { get; set; }
     public DateTime? PreviousDate2 { get; set; }
+    public bool Completed { get; set; }
 
     public int? DayLeft => ExpiredDate is null
         ? null
@@ -44,6 +45,11 @@ public sealed class SheetTask : INotifyPropertyChanged
     {
         get
         {
+            if (Completed)
+            {
+                return "Completed";
+            }
+
             var today = DateTime.Today;
 
             if (ExpiredDate is not null && ExpiredDate.Value.Date <= today)
@@ -66,6 +72,7 @@ public sealed class SheetTask : INotifyPropertyChanged
     {
         OnPropertyChanged(nameof(DayLeft));
         OnPropertyChanged(nameof(Status));
+        OnPropertyChanged(nameof(Completed));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

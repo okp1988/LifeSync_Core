@@ -7,8 +7,8 @@ Windows WPF app for reading task rows from a Google Sheet, caching them locally 
 1. Open the app.
 2. The app reads only the local cache at `<build folder>\data\tasks.json`.
 3. Press **Request** to fetch current tasks from Google Sheet and replace the local JSON cache.
-4. Select one task, edit **Selected Remark**, then press **Save Remark** or **Mark Complete**.
-5. **Mark Complete** saves the remark to Google Sheet first, calls the complete endpoint, then removes the task from local JSON. It does not re-request tasks.
+4. Select one task, edit **Selected Remark**, choose the completion date, then press **Mark Complete**.
+5. **Mark Complete** defaults the completion date to today, saves the remark to Google Sheet first, calls the complete endpoint, then marks the cached task as **Completed**. It does not re-request tasks; press **Request** manually when you want a fresh list from Google Sheet.
 
 ## Google Sheet Columns
 
