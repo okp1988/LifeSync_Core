@@ -1,40 +1,48 @@
 # Life Sync Personal Tracker
 
-Windows WPF app for reading task rows from a Google Sheet, caching them locally as JSON, editing the selected task remark, and marking a task complete.
+Windows WPF app for stable-ID, Google Sheet-backed recurring life tasks.
 
-## Workflow
+## Documentation
 
-1. Open the app.
-2. The app reads only the local cache at `<build folder>\data\tasks.json`.
-3. Press **Request** to fetch current tasks from Google Sheet and replace the local JSON cache.
-4. Select one task, edit **Selected Remark**, choose the completion date, then press **Mark Complete**.
-5. **Mark Complete** defaults the completion date to today, saves the remark to Google Sheet first, calls the complete endpoint, then marks the cached task as **Completed**. It does not re-request tasks; press **Request** manually when you want a fresh list from Google Sheet.
+- [Project Architecture](docs/project-architecture.md)
+- [Project Requirements](docs/project-requirements.md)
+- [Project Flows](docs/project-flows.md)
+- [Project Persistence](docs/project-persistence.md)
+- [Project Settings](docs/project-settings.md)
+- [Project API Contract](docs/project-api-contract.md)
+- [Task Tracker Alert Export Contract](docs/task-tracker-alert-export-contract.md)
+- [Project Development Rules](docs/project-development-rules.md)
+- [Current Code Review](docs/code-review-current.md)
 
-## Google Sheet Columns
+## Quick Setup
 
-The Apps Script sample expects these headers:
+1. Build and run on Windows with the Windows SDK available.
+2. Configure the deployed Google Apps Script URL and API key in the app.
+3. Deploy and migrate the production Apps Script package in `apps-script`.
+4. Press Sync to push queued changes and retrieve Google Sheet tasks.
 
-- Category
-- Type
-- Task
-- Expired Date
-- Warning Date
-- Day Left
-- Prev Date 1
-- Prev Date 2
-- Remark
-- Completed
+Runtime data is stored under the build output folder, not the repo root:
 
-`Completed` should be a checkbox column. The app maps returned data rows to sheet row numbers, where the first returned record is row 2, the second is row 3, and so on.
+- `data\config.json`
+- `data\tasks.json`
+- `data\task-sync-queue.json`
+- `data\checkin-settings.json`
+- `data\track-items.json`
+- `data\track-options.json`
+- `data\track-settings.json`
+- `log\lifesync-info-yyyy-MM-dd.log`
+- `log\lifesync-warning-error-yyyy-MM-dd.log`
 
-## Setup
+Important: keep [apps-script](apps-script), [Services/GoogleSheetClient.cs](Services/GoogleSheetClient.cs), and [docs/project-api-contract.md](docs/project-api-contract.md) aligned before deploying Apps Script changes.
 
-1. Copy [docs/google-apps-script.js](docs/google-apps-script.js) into your Google Sheet Apps Script project.
-2. Update `SHEET_NAME`, `API_KEY`, and `runCompletionLogic_`.
-3. Deploy the script as a web app that the Windows app can access.
-4. Put the deployed web app URL and matching API key into the app fields.
+## Current Project State
 
-The app stores the endpoint and key in `<build folder>\data\config.json`.
-Info logs are written to `<build folder>\log\lifesync-info-yyyy-MM-dd.log`.
-Warning and error logs are written to `<build folder>\log\lifesync-warning-error-yyyy-MM-dd.log`.
-Log retention is controlled by `logRetentionDays` in `<build folder>\data\config.json`.
+TASK is the active product surface. TRACK is hidden and dormant; its existing local JSON remains untouched for possible future recovery.
+
+Current TASK behavior:
+
+- Sync is manual: queued local mutations upload first, then Google Sheet tasks are pulled and merged by stable Task ID.
+- Create, edit, complete, snooze, clear-snooze, and archive save locally first and upload in the background.
+- The task grid uses single-click for selection and double-click to open detail.
+- Daily Summary shows expired/overdue and warning tasks as readable cards with quick snooze actions.
+- Status filters are `ALL`, `Normal`, `Warning`, `Expired`, `Pending`, and `Warning + Expired`.

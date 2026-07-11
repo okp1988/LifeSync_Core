@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
 using LifeSyncTaskClient.Models;
@@ -49,6 +50,49 @@ public sealed class JsonFileStore
         await JsonSerializer.SerializeAsync(stream, tasks, SerializerOptions);
     }
 
+    public async Task<List<TaskMutation>> LoadTaskSyncQueueAsync()
+    {
+        if (!File.Exists(AppPaths.TaskSyncQueuePath))
+        {
+            return [];
+        }
+
+        await using var stream = File.OpenRead(AppPaths.TaskSyncQueuePath);
+        return await JsonSerializer.DeserializeAsync<List<TaskMutation>>(stream, SerializerOptions) ?? [];
+    }
+
+    public async Task SaveTaskSyncQueueAsync(IEnumerable<TaskMutation> mutations)
+    {
+        Directory.CreateDirectory(AppPaths.DataDirectory);
+        await using var stream = File.Create(AppPaths.TaskSyncQueuePath);
+        await JsonSerializer.SerializeAsync(stream, mutations, SerializerOptions);
+    }
+
+    public async Task<CheckinSettings> LoadCheckinSettingsAsync()
+    {
+        Directory.CreateDirectory(AppPaths.DataDirectory);
+
+        if (!File.Exists(AppPaths.CheckinSettingsPath))
+        {
+            var settings = CreateDefaultCheckinSettings();
+            await SaveCheckinSettingsAsync(settings);
+            return settings;
+        }
+
+        await using var stream = File.OpenRead(AppPaths.CheckinSettingsPath);
+        var loadedSettings = await JsonSerializer.DeserializeAsync<CheckinSettings>(stream, SerializerOptions)
+            ?? CreateDefaultCheckinSettings();
+
+        return NormalizeCheckinSettings(loadedSettings);
+    }
+
+    public async Task SaveCheckinSettingsAsync(CheckinSettings settings)
+    {
+        Directory.CreateDirectory(AppPaths.DataDirectory);
+        await using var stream = File.Create(AppPaths.CheckinSettingsPath);
+        await JsonSerializer.SerializeAsync(stream, NormalizeCheckinSettings(settings), SerializerOptions);
+    }
+
     public async Task<IReadOnlyList<TrackItem>> LoadTrackItemsAsync()
     {
         if (!File.Exists(AppPaths.TrackItemsPath))
@@ -90,6 +134,29 @@ public sealed class JsonFileStore
         await JsonSerializer.SerializeAsync(stream, options, SerializerOptions);
     }
 
+    public async Task<TrackSettings> LoadTrackSettingsAsync()
+    {
+        Directory.CreateDirectory(AppPaths.DataDirectory);
+
+        if (!File.Exists(AppPaths.TrackSettingsPath))
+        {
+            var settings = new TrackSettings();
+            await SaveTrackSettingsAsync(settings);
+            return settings;
+        }
+
+        await using var stream = File.OpenRead(AppPaths.TrackSettingsPath);
+        return await JsonSerializer.DeserializeAsync<TrackSettings>(stream, SerializerOptions)
+            ?? new TrackSettings();
+    }
+
+    public async Task SaveTrackSettingsAsync(TrackSettings settings)
+    {
+        Directory.CreateDirectory(AppPaths.DataDirectory);
+        await using var stream = File.Create(AppPaths.TrackSettingsPath);
+        await JsonSerializer.SerializeAsync(stream, settings, SerializerOptions);
+    }
+
     public async Task<AppConfig> LoadConfigAsync()
     {
         Directory.CreateDirectory(AppPaths.DataDirectory);
@@ -111,5 +178,51 @@ public sealed class JsonFileStore
         Directory.CreateDirectory(AppPaths.DataDirectory);
         await using var stream = File.Create(AppPaths.ConfigPath);
         await JsonSerializer.SerializeAsync(stream, config, SerializerOptions);
+    }
+
+    private static CheckinSettings CreateDefaultCheckinSettings()
+    {
+        return new CheckinSettings
+        {
+            Days = new ObservableCollection<CheckinDaySetting>(CreateDefaultCheckinDays())
+        };
+    }
+
+    private static CheckinSettings NormalizeCheckinSettings(CheckinSettings settings)
+    {
+        var existingDays = settings.Days.ToDictionary(day => day.DayOfWeek);
+        var normalizedDays = CreateDefaultCheckinDays()
+            .Select(defaultDay =>
+            {
+                if (!existingDays.TryGetValue(defaultDay.DayOfWeek, out var existingDay))
+                {
+                    return defaultDay;
+                }
+
+                existingDay.DayName = defaultDay.DayName;
+                existingDay.TimeText = NormalizeCheckinTime(existingDay.TimeText);
+                return existingDay;
+            });
+
+        settings.Days = new ObservableCollection<CheckinDaySetting>(normalizedDays);
+        settings.LastAlertDate = settings.LastAlertDate?.Date;
+        return settings;
+    }
+
+    private static IEnumerable<CheckinDaySetting> CreateDefaultCheckinDays()
+    {
+        yield return new CheckinDaySetting { DayOfWeek = DayOfWeek.Monday, DayName = "Monday" };
+        yield return new CheckinDaySetting { DayOfWeek = DayOfWeek.Tuesday, DayName = "Tuesday" };
+        yield return new CheckinDaySetting { DayOfWeek = DayOfWeek.Wednesday, DayName = "Wednesday" };
+        yield return new CheckinDaySetting { DayOfWeek = DayOfWeek.Thursday, DayName = "Thursday" };
+        yield return new CheckinDaySetting { DayOfWeek = DayOfWeek.Friday, DayName = "Friday" };
+        yield return new CheckinDaySetting { DayOfWeek = DayOfWeek.Saturday, DayName = "Saturday" };
+        yield return new CheckinDaySetting { DayOfWeek = DayOfWeek.Sunday, DayName = "Sunday" };
+    }
+
+    private static string NormalizeCheckinTime(string? value)
+    {
+        var digits = new string((value ?? string.Empty).Where(char.IsDigit).Take(4).ToArray());
+        return digits.Length == 4 ? digits : "1200";
     }
 }

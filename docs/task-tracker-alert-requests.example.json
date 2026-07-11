@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-05-20T10:30:00+08:00",
+  "sourceApp": "LifeSync",
+  "requests": [
+    {
+      "requestId": "lifesync-request-20260520103000-001",
+      "sourceKey": "lifesync-task-7F3A91C2D4B8",
+      "sourceKind": "task",
+      "title": "Renew passport",
+      "remark": "LifeSync TASK alert.\nCategory: Personal\nType: Renewal\nTask: Renew passport\nEligible: 20 May 2026\nScheduled: 01 Jun 2026\nWarning Date: 2026-05-20\nExpired Date: 2026-06-01\nSheet Row (metadata only): 12\nRemark: Prepare photo before renewal.",
+      "eligibleAt": "2026-05-20T00:00:00+08:00",
+      "scheduledAt": "2026-06-01T00:00:00+08:00",
+      "notificationRules": [
+        {
+          "type": "specificTime",
+          "specificAt": "2026-06-01T00:00:00+08:00"
+        }
+      ],
+      "priority": "high",
+      "metadata": {
+        "category": "Personal",
+        "type": "Renewal",
+        "task": "Renew passport",
+        "rowNumber": "12",
+        "warningDate": "2026-05-20",
+        "expiredDate": "2026-06-01",
+        "status": "Warning"
+      }
+    },
+    {
+      "requestId": "lifesync-request-20260520103000-002",
+      "sourceKey": "lifesync-track-low-stock-aa15e8c9-low",
+      "sourceKind": "track-low-stock",
+      "title": "Restock AA Battery",
+      "remark": "LifeSync TRACK low stock alert.\nItem: AA Battery\nCategory: Household\nStatus: Low\nOwned: 10\nUsed: 8\nLeft: 2",
+      "eligibleAt": "2026-05-20T00:00:00+08:00",
+      "scheduledAt": "2026-05-20T10:30:00+08:00",
+      "notificationRules": [],
+      "priority": "high",
+      "metadata": {
+        "itemId": "aa15e8c90a4e4d1787af3cbb65cddc3a",
+        "itemName": "AA Battery",
+        "category": "Household",
+        "trackType": "Quantity",
+        "alertKind": "low-stock",
+        "alertStatus": "",
+        "stockAlertLevel": "Low"
+      }
+    },
+    {
+      "requestId": "lifesync-request-20260520103000-003",
+      "sourceKey": "lifesync-track-expiry-aa15e8c9-batch001-20260601",
+      "sourceKind": "track-expiry",
+      "title": "Check expiring Medicine",
+      "remark": "LifeSync TRACK expiry alert.\nItem: Medicine\nCategory: Health\nStatus: 1 week left\nExpiry: 01 Jun 2026\nBatch: Record 1 | 01 Jan 2026 | 2/5 left | exp 01 Jun 2026",
+      "eligibleAt": "2026-05-20T00:00:00+08:00",
+      "scheduledAt": "2026-06-01T00:00:00+08:00",
+      "notificationRules": [
+        {
+          "type": "specificTime",
+          "specificAt": "2026-06-01T00:00:00+08:00"
+        }
+      ],
+      "priority": "high",
+      "metadata": {
+        "itemId": "aa15e8c90a4e4d1787af3cbb65cddc3a",
+        "itemName": "Medicine",
+        "category": "Health",
+        "trackType": "Quantity",
+        "alertKind": "expiry",
+        "alertStatus": "1 week left",
+        "stockAlertLevel": "",
+        "batchId": "batch-001-example",
+        "expiryDate": "2026-06-01"
+      }
+    },
+    {
+      "requestId": "lifesync-request-20260520103000-004",
+      "sourceKey": "lifesync-track-replacement-aa15e8c9-20260601",
+      "sourceKind": "track-replacement",
+      "title": "Replace Water Filter",
+      "remark": "LifeSync TRACK replacement alert.\nItem: Water Filter\nCategory: Household\nStatus: Due today\nChange every: 6 Months\nNext replacement: 01 Jun 2026",
+      "eligibleAt": "2026-06-01T00:00:00+08:00",
+      "scheduledAt": "2026-06-01T00:00:00+08:00",
+      "notificationRules": [
+        {
+          "type": "specificTime",
+          "specificAt": "2026-06-01T00:00:00+08:00"
+        }
+      ],
+      "priority": "high",
+      "metadata": {
+        "itemId": "aa15e8c90a4e4d1787af3cbb65cddc3a",
+        "itemName": "Water Filter",
+        "category": "Household",
+        "trackType": "Change Cycle",
+        "alertKind": "replacement",
+        "alertStatus": "Due today",
+        "stockAlertLevel": ""
+      }
+    }
+  ]
+}
