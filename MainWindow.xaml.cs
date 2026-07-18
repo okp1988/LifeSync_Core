@@ -19,30 +19,12 @@ public partial class MainWindow : Window
         InitializeComponent();
         CaptureDefaultColumnWidths();
         DataContext = _viewModel;
-        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
-        UpdateTrackHistoryColumnVisibility();
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
         await _viewModel.InitializeAsync();
-        UpdateTrackHistoryColumnVisibility();
         ResetAllGridColumnWidths();
-    }
-
-    private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(MainViewModel.HasSelectedTrackItemExpiry))
-        {
-            UpdateTrackHistoryColumnVisibility();
-        }
-    }
-
-    private void UpdateTrackHistoryColumnVisibility()
-    {
-        TrackHistoryExpiryColumn.Visibility = _viewModel.HasSelectedTrackItemExpiry
-            ? Visibility.Visible
-            : Visibility.Collapsed;
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -56,18 +38,6 @@ public partial class MainWindow : Window
         ClearKeyboardFocus();
         ResetAllGridColumnWidths();
         e.Handled = true;
-    }
-
-    private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (e.Source != MainTabs)
-        {
-            return;
-        }
-
-        _viewModel.CloseAllPopupsAndSidebars();
-        ClearKeyboardFocus();
-        ResetAllGridColumnWidths();
     }
 
     private void DataGrid_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -125,31 +95,6 @@ public partial class MainWindow : Window
         _viewModel.ApplyTaskDayLeftSort(nextDirection);
     }
 
-    private void TrackItemsGrid_Sorting(object sender, DataGridSortingEventArgs e)
-    {
-        if (!string.Equals(e.Column.Header?.ToString(), "Left", StringComparison.Ordinal))
-        {
-            e.Handled = true;
-            return;
-        }
-
-        e.Handled = true;
-        var nextDirection = GetNextSortDirection(e.Column.SortDirection);
-        ClearSortDirections(TrackItemsGrid);
-        e.Column.SortDirection = nextDirection;
-        _viewModel.ApplyTrackLeftSort(nextDirection);
-    }
-
-    private void TrackItemsGrid_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (!_viewModel.OpenTrackRecordSidebarCommand.CanExecute(null))
-        {
-            return;
-        }
-
-        _viewModel.OpenTrackRecordSidebarCommand.Execute(null);
-    }
-
     private void TasksGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (FindAncestor<DataGridRow>((DependencyObject)e.OriginalSource) is not null)
@@ -158,7 +103,6 @@ public partial class MainWindow : Window
         }
 
         _viewModel.ClearTaskSelection();
-        _viewModel.CloseTrackSidebarCommand.Execute(null);
     }
 
     private void TasksGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -183,26 +127,6 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void TrackItemsGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (FindAncestor<DataGridRow>((DependencyObject)e.OriginalSource) is not null)
-        {
-            return;
-        }
-
-        _viewModel.ClearTrackSelection();
-    }
-
-    private void TrackHistoryGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (FindAncestor<DataGridRow>((DependencyObject)e.OriginalSource) is not null)
-        {
-            return;
-        }
-
-        _viewModel.ClearSelectedTrackHistory();
-    }
-
     private void CaptureDefaultColumnWidths()
     {
         foreach (var grid in EnumerateManagedGrids())
@@ -220,16 +144,6 @@ public partial class MainWindow : Window
         {
             column.Width = width;
         }
-    }
-
-    private void ResetAllGridState()
-    {
-        foreach (var grid in EnumerateManagedGrids())
-        {
-            ClearSortDirections(grid);
-        }
-
-        ResetAllGridColumnWidths();
     }
 
     private static ListSortDirection? GetNextSortDirection(ListSortDirection? currentDirection)
@@ -253,8 +167,6 @@ public partial class MainWindow : Window
     private IEnumerable<DataGrid> EnumerateManagedGrids()
     {
         yield return TasksGrid;
-        yield return TrackItemsGrid;
-        yield return TrackHistoryGrid;
     }
 
     private void ClearKeyboardFocus()

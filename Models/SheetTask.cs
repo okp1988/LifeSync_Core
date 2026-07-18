@@ -56,7 +56,6 @@ public sealed class SheetTask : INotifyPropertyChanged
 
     public DateTime? LastExecutedDate { get; set; }
     public int RowNumber { get; set; }
-    public string TrackId { get; set; } = string.Empty;
     public DateTime? SnoozeUntil { get; set; }
     public string SnoozeNote { get; set; } = string.Empty;
     public string LastGoogleTaskKey { get; set; } = string.Empty;

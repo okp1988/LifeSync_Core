@@ -52,7 +52,6 @@ Raw task array:
     "alert": true,
     "history": true,
     "rowNumber": 2,
-    "trackId": "legacy-or-related-id",
     "snoozeUntil": "2026-05-30",
     "snoozeNote": "Wait until weekend",
     "lastGoogleTaskKey": "lifesync-task-expired-7F3A91C2D4B8",

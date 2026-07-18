@@ -1,28 +1,28 @@
 # Current Code Review
 
-Date reviewed: 2026-07-09
+Date reviewed: 2026-07-19
 
 ## Findings
 
-No open blocking findings are documented after the TASK-first sync, daily summary, and Apps Script redesign pass.
+No open blocking findings are documented after the TASK-only housekeeping pass.
 
-Previously documented issues are now addressed:
-
-- Apps Script production source moved to `apps-script` and now matches the stable Task ID JSON mutation contract.
-- Task completion, snooze, and other task mutations use the local outbox and no longer depend on Google Sheet row numbers.
-- TASK summary uses readable cards, supports mouse-wheel scrolling over task rows, and quick snooze dates serialize as `yyyy-MM-dd`.
-- TRACK is hidden and dormant, so its old row-click/detail-flow concerns are not active product issues.
+- TASK synchronization uses stable IDs and a durable local outbox.
+- Completion, snooze, create, edit, and archive remain optimistic and background-uploaded.
+- Daily Summary and conflict resolution remain part of the active UI.
+- Google Apps Script remains the production API and Google Task reminder source.
+- Abandoned non-TASK implementations have been removed.
 
 ## Residual Risks
 
-- There are no automated tests; validation is currently through `dotnet build` plus manual scenarios.
-- Existing user runtime data may contain queued mutations created before date-only serialization. If a stale snooze mutation still fails, recreate the snooze from the app so the queue gets a fresh `yyyy-MM-dd` payload.
-- `MainViewModel` remains very large and owns many dormant TRACK flows. Future TASK work should avoid expanding TRACK code unless the user explicitly re-enables that surface.
+- There are no automated tests; validation currently relies on `dotnet build` and manual scenarios.
+- Existing runtime files from removed features may remain on user machines, but current code no longer reads or modifies them.
+- Existing queued mutations created before date-only serialization may need to be recreated if they continue to fail.
 
 ## Recommended Manual Checks
 
-- Single-click a TASK grid row and confirm only selection changes.
-- Double-click a TASK grid row and confirm task detail opens.
-- Use Daily Summary quick snooze for 14 or 30 days and confirm upload no longer returns “Snooze date is required.”
-- Mark Complete and immediately interact with another task while upload runs in the background.
-- Run Sync after an offline or failed upload and confirm Pending clears or Conflict appears.
+- Single-click and double-click task grid behavior.
+- Create, edit, complete, snooze, clear snooze, and archive.
+- Offline mutation persistence followed by Sync.
+- Keep PC and Use Sheet conflict resolution.
+- Daily Summary quick snooze.
+- Check-in reminder settings.
