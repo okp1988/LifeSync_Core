@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <Resource Include="Assets\AppIcon.ico" />
+    <Resource Include="Assets\Icons\*.png" />
 
     <None Update="appsettings.sample.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

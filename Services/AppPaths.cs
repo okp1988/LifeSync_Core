@@ -11,6 +11,7 @@ public static class AppPaths
 
     public static string TaskCachePath { get; } = Path.Combine(DataDirectory, "tasks.json");
     public static string TaskSyncQueuePath { get; } = Path.Combine(DataDirectory, "task-sync-queue.json");
+    public static string WatchListPath { get; } = Path.Combine(DataDirectory, "watch-list.json");
     public static string CheckinSettingsPath { get; } = Path.Combine(DataDirectory, "checkin-settings.json");
     public static string ConfigPath { get; } = Path.Combine(DataDirectory, "config.json");
     public static string CurrentInfoLogPath => Path.Combine(LogDirectory, $"lifesync-info-{DateTime.Today:yyyy-MM-dd}.log");

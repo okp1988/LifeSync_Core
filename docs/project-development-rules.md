@@ -12,6 +12,8 @@
 - Redact API tokens from logs.
 - Keep `apps-script`, `GoogleSheetClient`, and `docs/project-api-contract.md` aligned.
 - Serialize date-only mutation fields as `yyyy-MM-dd`.
+- Replace a complete cached task set in one collection notification; do not repopulate the bound task collection row by row.
+- Keep plain and templated task-grid cells on the shared alignment styles.
 
 ## Must Not Do
 

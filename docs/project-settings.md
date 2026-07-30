@@ -2,11 +2,12 @@
 
 ## Config Settings
 
-`config.json` is edited through app-bound fields and saved before network calls.
+`config.json` is edited in the combined Settings dialog.
 
 - `GoogleAppsScriptUrl`: deployed Google Apps Script web app URL.
 - `ApiKey`: shared token sent to Apps Script.
 - `LogRetentionDays`: minimum 1; invalid values normalize to 30 at startup.
+- General and check-in values use drafts; Save persists both settings files and Cancel discards changes.
 
 ## Check-In Settings
 
@@ -19,10 +20,14 @@
 
 ## Task Filters
 
-- Category
-- Type
-- Day Left
-- Status
+Controls appear in this order:
+
+1. Category
+2. Type
+3. Search Task
+4. Status
+5. Mode
+6. Clear Filters
 
 Status choices are hard-coded in `MainViewModel.Statuses`:
 
@@ -33,4 +38,11 @@ Status choices are hard-coded in `MainViewModel.Statuses`:
 - `Pending`
 - `Warning + Expired`
 
-`Pending` is derived from mutation sync state. Filters apply immediately.
+`Pending` is derived from mutation sync state. Category, Type, Status, and Search Task combine and apply immediately. Search Task performs a case-insensitive partial match against the Task column. There is no Day Left filter.
+
+Mode choices:
+
+- `Normal`: Category, Type, Task.
+- `Priority`: Expired + Alert, Warning + Alert, Expired, Warning, then all remaining statuses; ties use Category, Type, Task.
+
+Mode remains selected during Sync, Clear Filters resets it to Normal, and startup begins in Normal. Grid columns are not directly sortable.

@@ -32,9 +32,9 @@ public sealed class SheetTask : INotifyPropertyChanged
         ? null
         : (ExpiredDate.Value.Date - DateTime.Today).Days;
 
-    public int? DayPassed => PreviousDate1 is null
+    public int? DayPassed => GridLastExecutedDate is null
         ? null
-        : (DateTime.Today - PreviousDate1.Value.Date).Days;
+        : (DateTime.Today - GridLastExecutedDate.Value.Date).Days;
 
     public string Remark
     {
@@ -92,6 +92,44 @@ public sealed class SheetTask : INotifyPropertyChanged
     public bool IsSnoozed => SnoozeUntil is not null && SnoozeUntil.Value.Date >= DateTime.Today;
 
     [JsonIgnore]
+    public DateTime? GridLastExecutedDate => LastExecutedDate ?? PreviousDate1;
+
+    [JsonIgnore]
+    public string ExpiredDateDisplay => FormatDate(ExpiredDate);
+
+    [JsonIgnore]
+    public string ExpiredDayDisplay => FormatDayNumber(DayLeft);
+
+    [JsonIgnore]
+    public string WarningDateDisplay => WarningDate is null || WarningDate.Value.Date == ExpiredDate?.Date
+        ? "-"
+        : WarningDate.Value.ToString("dd MMM yyyy");
+
+    [JsonIgnore]
+    public string AlertDateDisplay => SnoozeUntil is null ? "-" : SnoozeUntil.Value.ToString("dd MMM yyyy");
+
+    [JsonIgnore]
+    public string AlertDayDisplay
+    {
+        get
+        {
+            if (SnoozeUntil is null)
+            {
+                return string.Empty;
+            }
+
+            var days = (SnoozeUntil.Value.Date - DateTime.Today).Days;
+            return $"({Math.Abs(days)})";
+        }
+    }
+
+    [JsonIgnore]
+    public string LastExecutedDateDisplay => FormatDate(GridLastExecutedDate);
+
+    [JsonIgnore]
+    public string LastExecutedDayDisplay => FormatDayNumber(DayPassed);
+
+    [JsonIgnore]
     public string SnoozeDisplay => SnoozeUntil is null
         ? string.Empty
         : IsSnoozed
@@ -138,13 +176,32 @@ public sealed class SheetTask : INotifyPropertyChanged
         }
     }
 
+    [JsonIgnore]
+    public int PriorityRank => Status switch
+    {
+        "Expired" when Alert => 0,
+        "Warning" when Alert => 1,
+        "Expired" => 2,
+        "Warning" => 3,
+        _ => 4
+    };
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public void NotifyCalculatedFieldsChanged()
     {
         OnPropertyChanged(nameof(DayLeft));
         OnPropertyChanged(nameof(DayPassed));
+        OnPropertyChanged(nameof(GridLastExecutedDate));
+        OnPropertyChanged(nameof(ExpiredDateDisplay));
+        OnPropertyChanged(nameof(ExpiredDayDisplay));
+        OnPropertyChanged(nameof(WarningDateDisplay));
+        OnPropertyChanged(nameof(AlertDateDisplay));
+        OnPropertyChanged(nameof(AlertDayDisplay));
+        OnPropertyChanged(nameof(LastExecutedDateDisplay));
+        OnPropertyChanged(nameof(LastExecutedDayDisplay));
         OnPropertyChanged(nameof(Status));
+        OnPropertyChanged(nameof(PriorityRank));
         OnPropertyChanged(nameof(Completed));
         OnPropertyChanged(nameof(IsSnoozed));
         OnPropertyChanged(nameof(SnoozeDisplay));
@@ -164,6 +221,16 @@ public sealed class SheetTask : INotifyPropertyChanged
     private static bool HasMultipleLines(string value)
     {
         return value.Contains('\n') || value.Contains('\r');
+    }
+
+    private static string FormatDayNumber(int? days)
+    {
+        return days is null ? string.Empty : $"({days.Value})";
+    }
+
+    private static string FormatDate(DateTime? date)
+    {
+        return date?.ToString("dd MMM yyyy") ?? "-";
     }
 }
 

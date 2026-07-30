@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Data;
@@ -12,23 +13,30 @@ namespace LifeSyncTaskClient.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged
 {
     private const string AllFilter = "ALL";
+    private const string NormalSortMode = "Normal";
+    private const string PrioritySortMode = "Priority";
     private readonly JsonFileStore _fileStore = new();
     private readonly GoogleSheetClient _sheetClient = new();
-    private readonly ObservableCollection<SheetTask> _tasks = [];
+    private readonly RangeObservableCollection<SheetTask> _tasks = [];
     private readonly List<TaskMutation> _taskSyncQueue = [];
+    private readonly List<WatchListEntry> _watchListEntries = [];
+    private readonly ObservableCollection<WatchListItem> _watchListItems = [];
     private readonly SemaphoreSlim _taskSyncGate = new(1, 1);
     private readonly DispatcherTimer _checkinTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private AppConfig _config = new();
+    private AppConfig _configDraft = new();
     private CheckinSettings _checkinSettings = new();
     private SheetTask? _selectedTask;
+    private WatchListItem? _selectedWatchListItem;
     private string _categoryFilter = AllFilter;
     private string _typeFilter = AllFilter;
     private string _statusFilter = AllFilter;
-    private string _dayLeftFilter = AllFilter;
+    private string _taskSearchText = string.Empty;
+    private string _selectedSortMode = NormalSortMode;
+    private MainViewKind _currentMainView = MainViewKind.Tasks;
     private bool _isLoadingTasks;
     private bool _isMarkingComplete;
     private bool _isTaskSidebarOpen;
-    private bool _isTaskSummaryOpen;
     private bool _isTaskEditorOpen;
     private bool _isNewTaskDraft;
     private bool _isTaskConflictOpen;
@@ -36,7 +44,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ObservableCollection<TaskMutation> _taskConflicts = [];
     private TaskMutation? _selectedTaskConflict;
     private string _message = "Ready";
-    private bool _isCheckinSettingsOpen;
+    private bool _isSettingsOpen;
     private bool _isUpdatingCheckinAllDays;
     private DateTime _lastCheckinDisplayRefreshDate = DateTime.MinValue;
     private DateTime _lastTaskCalculatedFieldsRefreshDate = DateTime.Today;
@@ -46,17 +54,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ObservableCollection<string> _types = [AllFilter];
     private ObservableCollection<TaskSummaryItem> _expiredTaskSummaryItems = [];
     private ObservableCollection<TaskSummaryItem> _warningTaskSummaryItems = [];
+    private ObservableCollection<TaskSummaryItem> _snoozedTaskSummaryItems = [];
     private TaskSummaryItem? _selectedTaskSummaryItem;
     private TaskSummaryItem? _selectedExpiredTaskSummaryItem;
     private TaskSummaryItem? _selectedWarningTaskSummaryItem;
+    private TaskSummaryItem? _selectedSnoozedTaskSummaryItem;
     private DateTime? _taskSummaryCustomSnoozeUntil = DateTime.Today.AddDays(7);
     private string _taskSummarySnoozeNote = string.Empty;
+    private bool _areSecondaryViewsReady;
 
     public MainViewModel()
     {
         TasksView = CollectionViewSource.GetDefaultView(_tasks);
         TasksView.Filter = FilterTask;
-        ApplyDefaultSort();
+        ApplyTaskSort();
 
         RequestTasksCommand = new RelayCommand(RequestTasksAsync, CanUseNetwork);
         MarkCompleteCommand = new RelayCommand(MarkCompleteAsync, CanMutateSelectedTask);
@@ -72,8 +83,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CloseTaskConflictsCommand = new RelayCommand(CloseTaskConflictsAsync);
         KeepPcTaskConflictCommand = new RelayCommand(KeepPcTaskConflictAsync, HasSelectedTaskConflict);
         UseSheetTaskConflictCommand = new RelayCommand(UseSheetTaskConflictAsync, HasSelectedTaskConflict);
-        OpenTaskSummaryCommand = new RelayCommand(OpenTaskSummaryAsync);
-        CloseTaskSummaryCommand = new RelayCommand(CloseTaskSummaryAsync);
         OpenSelectedTaskSummaryItemCommand = new RelayCommand(OpenSelectedTaskSummaryItemAsync, HasSelectedTaskSummaryItem);
         SnoozeTaskSummary1DayCommand = new RelayCommand(() => SnoozeSelectedTaskSummaryItemAsync(1), CanSnoozeSelectedTaskSummaryItem);
         SnoozeTaskSummary3DaysCommand = new RelayCommand(() => SnoozeSelectedTaskSummaryItemAsync(3), CanSnoozeSelectedTaskSummaryItem);
@@ -82,15 +91,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SnoozeTaskSummary30DaysCommand = new RelayCommand(() => SnoozeSelectedTaskSummaryItemAsync(30), CanSnoozeSelectedTaskSummaryItem);
         SnoozeTaskSummaryCustomCommand = new RelayCommand(SnoozeSelectedTaskSummaryItemToCustomDateAsync, CanSnoozeSelectedTaskSummaryItemToCustomDate);
         ClearTaskSummarySnoozeCommand = new RelayCommand(ClearSelectedTaskSummaryItemSnoozeAsync, CanClearSelectedTaskSummaryItemSnooze);
+        ShowTasksViewCommand = new RelayCommand(ShowTasksViewAsync);
+        ShowWatchListViewCommand = new RelayCommand(ShowWatchListViewAsync, CanOpenSecondaryView);
+        ShowDailySummaryViewCommand = new RelayCommand(ShowDailySummaryViewAsync, CanOpenSecondaryView);
+        ToggleSelectedTaskWatchCommand = new RelayCommand(ToggleSelectedTaskWatchAsync, CanToggleSelectedTaskWatch);
+        OpenSelectedWatchTaskCommand = new RelayCommand(OpenSelectedWatchTaskAsync, HasSelectedWatchListItem);
         CheckinCommand = new RelayCommand(CheckinAsync);
-        OpenCheckinSettingsCommand = new RelayCommand(OpenCheckinSettingsAsync);
-        SaveCheckinSettingsCommand = new RelayCommand(SaveCheckinSettingsAsync);
-        CancelCheckinSettingsCommand = new RelayCommand(CancelCheckinSettingsAsync);
+        OpenSettingsCommand = new RelayCommand(OpenSettingsAsync);
+        SaveSettingsCommand = new RelayCommand(SaveSettingsAsync);
+        CancelSettingsCommand = new RelayCommand(CancelSettingsAsync);
         CheckinSettingsDraft = new ObservableCollection<CheckinDaySetting>();
         _checkinTimer.Tick += CheckinTimer_Tick;
     }
 
     public ICollectionView TasksView { get; }
+    public ObservableCollection<WatchListItem> WatchListItems => _watchListItems;
     public ObservableCollection<string> Categories
     {
         get => _categories;
@@ -98,6 +113,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             _categories = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(TaskCategoryOptions));
         }
     }
 
@@ -108,11 +124,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             _types = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(TaskTypeOptions));
         }
     }
 
+    public IEnumerable<string> TaskCategoryOptions => Categories.Where(value => value != AllFilter);
+
+    public IEnumerable<string> TaskTypeOptions => Types.Where(value => value != AllFilter);
+
     public string[] Statuses { get; } = [AllFilter, "Normal", "Warning", "Expired", "Pending", "Warning + Expired"];
-    public string[] DayLeftFilters { get; } = [AllFilter, "Overdue", "Due today", "Next 7 days", "More than 7 days"];
+    public string[] SortModes { get; } = [NormalSortMode, PrioritySortMode];
     public string[] TaskCycleUnits { get; } = ["Day", "Month", "Year"];
 
     public RelayCommand RequestTasksCommand { get; }
@@ -129,8 +150,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand CloseTaskConflictsCommand { get; }
     public RelayCommand KeepPcTaskConflictCommand { get; }
     public RelayCommand UseSheetTaskConflictCommand { get; }
-    public RelayCommand OpenTaskSummaryCommand { get; }
-    public RelayCommand CloseTaskSummaryCommand { get; }
     public RelayCommand OpenSelectedTaskSummaryItemCommand { get; }
     public RelayCommand SnoozeTaskSummary1DayCommand { get; }
     public RelayCommand SnoozeTaskSummary3DaysCommand { get; }
@@ -139,12 +158,80 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand SnoozeTaskSummary30DaysCommand { get; }
     public RelayCommand SnoozeTaskSummaryCustomCommand { get; }
     public RelayCommand ClearTaskSummarySnoozeCommand { get; }
+    public RelayCommand ShowTasksViewCommand { get; }
+    public RelayCommand ShowWatchListViewCommand { get; }
+    public RelayCommand ShowDailySummaryViewCommand { get; }
+    public RelayCommand ToggleSelectedTaskWatchCommand { get; }
+    public RelayCommand OpenSelectedWatchTaskCommand { get; }
     public RelayCommand CheckinCommand { get; }
-    public RelayCommand OpenCheckinSettingsCommand { get; }
-    public RelayCommand SaveCheckinSettingsCommand { get; }
-    public RelayCommand CancelCheckinSettingsCommand { get; }
+    public RelayCommand OpenSettingsCommand { get; }
+    public RelayCommand SaveSettingsCommand { get; }
+    public RelayCommand CancelSettingsCommand { get; }
 
     public ObservableCollection<CheckinDaySetting> CheckinSettingsDraft { get; }
+
+    public MainViewKind CurrentMainView
+    {
+        get => _currentMainView;
+        private set
+        {
+            if (_currentMainView == value)
+            {
+                return;
+            }
+
+            _currentMainView = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsTasksView));
+            OnPropertyChanged(nameof(IsWatchListView));
+            OnPropertyChanged(nameof(IsDailySummaryView));
+        }
+    }
+
+    public bool IsTasksView => CurrentMainView == MainViewKind.Tasks;
+
+    public bool IsWatchListView => CurrentMainView == MainViewKind.WatchList;
+
+    public bool IsDailySummaryView => CurrentMainView == MainViewKind.DailySummary;
+
+    public bool AreSecondaryViewsReady
+    {
+        get => _areSecondaryViewsReady;
+        private set
+        {
+            if (_areSecondaryViewsReady == value)
+            {
+                return;
+            }
+
+            _areSecondaryViewsReady = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(WatchListDisplay));
+            OnPropertyChanged(nameof(DailySummaryViewDisplay));
+            ShowWatchListViewCommand.RaiseCanExecuteChanged();
+            ShowDailySummaryViewCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string WatchListDisplay => AreSecondaryViewsReady
+        ? $"Watch List ({WatchListItems.Count})"
+        : "Watch List (loading)";
+
+    public WatchListItem? SelectedWatchListItem
+    {
+        get => _selectedWatchListItem;
+        set
+        {
+            if (_selectedWatchListItem == value)
+            {
+                return;
+            }
+
+            _selectedWatchListItem = value;
+            OnPropertyChanged();
+            RefreshCommands();
+        }
+    }
 
     public bool CheckinCheckboxValue => false;
 
@@ -157,17 +244,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsLastCheckinStale => _checkinSettings.LastCheckinAt is not null
         && _checkinSettings.LastCheckinAt.Value.Date != DateTime.Today;
 
-    public bool IsCheckinSettingsOpen
+    public bool IsSettingsOpen
     {
-        get => _isCheckinSettingsOpen;
+        get => _isSettingsOpen;
         private set
         {
-            if (_isCheckinSettingsOpen == value)
+            if (_isSettingsOpen == value)
             {
                 return;
             }
 
-            _isCheckinSettingsOpen = value;
+            _isSettingsOpen = value;
             OnPropertyChanged();
         }
     }
@@ -206,47 +293,64 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string GoogleAppsScriptUrl
     {
-        get => _config.GoogleAppsScriptUrl;
+        get => _configDraft.GoogleAppsScriptUrl;
         set
         {
-            if (_config.GoogleAppsScriptUrl == value)
+            if (_configDraft.GoogleAppsScriptUrl == value)
             {
                 return;
             }
 
-            _config.GoogleAppsScriptUrl = value;
+            _configDraft.GoogleAppsScriptUrl = value;
             OnPropertyChanged();
         }
     }
 
     public string ApiKey
     {
-        get => _config.ApiKey;
+        get => _configDraft.ApiKey;
         set
         {
-            if (_config.ApiKey == value)
+            if (_configDraft.ApiKey == value)
             {
                 return;
             }
 
-            _config.ApiKey = value;
+            _configDraft.ApiKey = value;
             OnPropertyChanged();
         }
     }
 
     public int LogRetentionDays
     {
-        get => _config.LogRetentionDays;
+        get => _configDraft.LogRetentionDays;
         set
         {
             var normalizedValue = Math.Max(1, value);
-            if (_config.LogRetentionDays == normalizedValue)
+            if (_configDraft.LogRetentionDays == normalizedValue)
             {
                 return;
             }
 
-            _config.LogRetentionDays = normalizedValue;
+            _configDraft.LogRetentionDays = normalizedValue;
             OnPropertyChanged();
+        }
+    }
+
+    public string SelectedSortMode
+    {
+        get => _selectedSortMode;
+        set
+        {
+            var normalizedValue = value == PrioritySortMode ? PrioritySortMode : NormalSortMode;
+            if (_selectedSortMode == normalizedValue)
+            {
+                return;
+            }
+
+            _selectedSortMode = normalizedValue;
+            OnPropertyChanged();
+            ApplyTaskSort();
         }
     }
 
@@ -269,9 +373,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(SelectedTaskDayLeftDisplay));
             OnPropertyChanged(nameof(SelectedTaskSnoozeDisplay));
             OnPropertyChanged(nameof(SelectedTaskGoogleTaskDisplay));
+            OnPropertyChanged(nameof(IsSelectedTaskWatched));
+            OnPropertyChanged(nameof(WatchListActionDisplay));
             RefreshCommands();
         }
     }
+
+    public bool IsSelectedTaskWatched => SelectedTask is not null
+        && _watchListEntries.Any(entry => string.Equals(entry.TaskId, SelectedTask.TaskId, StringComparison.OrdinalIgnoreCase));
+
+    public string WatchListActionDisplay => IsSelectedTaskWatched ? "Remove from Watch List" : "Add to Watch List";
 
     public string CategoryFilter
     {
@@ -324,18 +435,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string DayLeftFilter
+    public string TaskSearchText
     {
-        get => _dayLeftFilter;
+        get => _taskSearchText;
         set
         {
-            value = NormalizeFilter(value);
-            if (_dayLeftFilter == value)
+            value ??= string.Empty;
+            if (_taskSearchText == value)
             {
                 return;
             }
 
-            _dayLeftFilter = value;
+            _taskSearchText = value;
             OnPropertyChanged();
             ApplyTaskFilters();
         }
@@ -557,21 +668,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool IsTaskSummaryOpen
-    {
-        get => _isTaskSummaryOpen;
-        private set
-        {
-            if (_isTaskSummaryOpen == value)
-            {
-                return;
-            }
-
-            _isTaskSummaryOpen = value;
-            OnPropertyChanged();
-        }
-    }
-
     public ObservableCollection<TaskSummaryItem> ExpiredTaskSummaryItems
     {
         get => _expiredTaskSummaryItems;
@@ -581,6 +677,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasExpiredTaskSummaryItems));
             OnPropertyChanged(nameof(TaskSummaryDisplay));
+            OnPropertyChanged(nameof(DailySummaryViewDisplay));
         }
     }
 
@@ -593,6 +690,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasWarningTaskSummaryItems));
             OnPropertyChanged(nameof(TaskSummaryDisplay));
+            OnPropertyChanged(nameof(DailySummaryViewDisplay));
+        }
+    }
+
+    public ObservableCollection<TaskSummaryItem> SnoozedTaskSummaryItems
+    {
+        get => _snoozedTaskSummaryItems;
+        private set
+        {
+            _snoozedTaskSummaryItems = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasSnoozedTaskSummaryItems));
+            OnPropertyChanged(nameof(TaskSummaryDisplay));
+            OnPropertyChanged(nameof(DailySummaryViewDisplay));
         }
     }
 
@@ -609,6 +720,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _selectedTaskSummaryItem = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedTaskSummaryDisplay));
+            TaskSummaryCustomSnoozeUntil = value?.TaskItem.SnoozeUntil?.Date >= DateTime.Today
+                ? value.TaskItem.SnoozeUntil.Value.Date
+                : DateTime.Today.AddDays(7);
             RefreshCommands();
         }
     }
@@ -629,6 +743,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 _selectedWarningTaskSummaryItem = null;
                 OnPropertyChanged(nameof(SelectedWarningTaskSummaryItem));
+                _selectedSnoozedTaskSummaryItem = null;
+                OnPropertyChanged(nameof(SelectedSnoozedTaskSummaryItem));
                 SelectedTaskSummaryItem = value;
             }
         }
@@ -650,6 +766,31 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 _selectedExpiredTaskSummaryItem = null;
                 OnPropertyChanged(nameof(SelectedExpiredTaskSummaryItem));
+                _selectedSnoozedTaskSummaryItem = null;
+                OnPropertyChanged(nameof(SelectedSnoozedTaskSummaryItem));
+                SelectedTaskSummaryItem = value;
+            }
+        }
+    }
+
+    public TaskSummaryItem? SelectedSnoozedTaskSummaryItem
+    {
+        get => _selectedSnoozedTaskSummaryItem;
+        set
+        {
+            if (_selectedSnoozedTaskSummaryItem == value)
+            {
+                return;
+            }
+
+            _selectedSnoozedTaskSummaryItem = value;
+            OnPropertyChanged();
+            if (value is not null)
+            {
+                _selectedExpiredTaskSummaryItem = null;
+                OnPropertyChanged(nameof(SelectedExpiredTaskSummaryItem));
+                _selectedWarningTaskSummaryItem = null;
+                OnPropertyChanged(nameof(SelectedWarningTaskSummaryItem));
                 SelectedTaskSummaryItem = value;
             }
         }
@@ -690,7 +831,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool HasWarningTaskSummaryItems => WarningTaskSummaryItems.Count > 0;
 
-    public string TaskSummaryDisplay => $"{ExpiredTaskSummaryItems.Count} expired / {WarningTaskSummaryItems.Count} warning";
+    public bool HasSnoozedTaskSummaryItems => SnoozedTaskSummaryItems.Count > 0;
+
+    public string TaskSummaryDisplay => $"{ExpiredTaskSummaryItems.Count} expired / {WarningTaskSummaryItems.Count} warning / {SnoozedTaskSummaryItems.Count} snoozed";
+
+    public string DailySummaryViewDisplay => AreSecondaryViewsReady
+        ? $"Daily Summary ({ExpiredTaskSummaryItems.Count + WarningTaskSummaryItems.Count + SnoozedTaskSummaryItems.Count})"
+        : "Daily Summary (loading)";
 
     public string SelectedTaskSummaryDisplay => SelectedTaskSummaryItem is null
         ? "Select a summary item"
@@ -709,18 +856,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             AppLogger.PruneOldFiles(_config.LogRetentionDays);
-            OnPropertyChanged(nameof(GoogleAppsScriptUrl));
-            OnPropertyChanged(nameof(ApiKey));
-            OnPropertyChanged(nameof(LogRetentionDays));
+
+            var taskSyncQueueLoad = _fileStore.LoadTaskSyncQueueAsync();
+            var cachedTasksLoad = _fileStore.LoadTasksAsync();
+            var watchListLoad = _fileStore.LoadWatchListAsync();
+            var checkinSettingsLoad = _fileStore.LoadCheckinSettingsAsync();
+            await Task.WhenAll(taskSyncQueueLoad, cachedTasksLoad, watchListLoad, checkinSettingsLoad);
 
             _taskSyncQueue.Clear();
-            _taskSyncQueue.AddRange(await _fileStore.LoadTaskSyncQueueAsync());
-            var cachedTasks = await _fileStore.LoadTasksAsync();
-            ReplaceTasks(cachedTasks);
-            _checkinSettings = await _fileStore.LoadCheckinSettingsAsync();
-            ResetCheckinSettingsDraft();
-            ResetFilters();
+            _taskSyncQueue.AddRange(await taskSyncQueueLoad);
+            _watchListEntries.Clear();
+            _watchListEntries.AddRange((await watchListLoad)
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.TaskId))
+                .GroupBy(entry => entry.TaskId, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.OrderBy(entry => entry.AddedAt).First()));
+            _checkinSettings = await checkinSettingsLoad;
+            ResetSettingsDraft();
+            ResetFilters(resetSortMode: true);
+            var cachedTasks = await cachedTasksLoad;
+            ReplaceTasks(cachedTasks, rebuildSecondaryViews: false);
+            _ = BuildSecondaryViewsAfterStartupAsync();
             AppLogger.Info($"Loaded {cachedTasks.Count} cached task(s) from {AppPaths.TaskCachePath}");
+            AppLogger.Info($"Loaded {_watchListEntries.Count} watch-list entr{(_watchListEntries.Count == 1 ? "y" : "ies")} from {AppPaths.WatchListPath}");
             AppLogger.Info($"Loaded check-in settings from {AppPaths.CheckinSettingsPath}");
             Message = cachedTasks.Count == 0
                 ? "No cached tasks. Press Sync to retrieve from Google Sheet."
@@ -746,30 +903,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public void CloseAllPopupsAndSidebars()
     {
-        ResetCheckinSettingsDraft();
-        IsCheckinSettingsOpen = false;
-        IsTaskSummaryOpen = false;
+        ResetSettingsDraft();
+        IsSettingsOpen = false;
         IsTaskEditorOpen = false;
         IsTaskConflictOpen = false;
         SelectedTaskSummaryItem = null;
         SelectedExpiredTaskSummaryItem = null;
         SelectedWarningTaskSummaryItem = null;
+        SelectedSnoozedTaskSummaryItem = null;
         ClearTaskSelection();
-    }
-
-    public void ApplyTaskDayLeftSort(ListSortDirection? direction)
-    {
-        if (direction is null)
-        {
-            ApplyDefaultSort();
-        }
-        else
-        {
-            TasksView.SortDescriptions.Clear();
-            TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.DayLeft), direction.Value));
-        }
-
-        TasksView.Refresh();
     }
 
     private async Task RequestTasksAsync()
@@ -779,11 +921,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            await SaveConfigAsync();
             await ProcessPendingMutationsAsync();
             var tasks = await _sheetClient.GetTasksAsync(_config, CancellationToken.None);
             MergeServerTasks(tasks);
-            ResetFilters();
+            await PruneWatchListAsync();
+            ResetFilters(resetSortMode: false);
             await _fileStore.SaveTasksAsync(_tasks);
             await _fileStore.SaveTaskSyncQueueAsync(_taskSyncQueue);
             Message = $"Sync complete. {_tasks.Count(task => !task.Archived)} task(s); {TaskSyncDisplay}.";
@@ -854,11 +996,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             mutation.Payload.ExecuteDate = completionDate;
             mutation.Payload.Remark = remark;
             await QueueAndTryMutationAsync(mutation);
+            await RemoveTaskFromWatchListAsync(taskToComplete.TaskId);
             SelectedTask = null;
             IsTaskSidebarOpen = false;
             SelectedRemarkDraft = string.Empty;
             RebuildFilterLists();
             RebuildTaskSummary();
+            RebuildWatchListItems();
             TasksView.Refresh();
             Message = $"Completion saved locally. {TaskSyncDisplay}.";
         }
@@ -875,7 +1019,76 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private Task ClearFiltersAsync()
     {
-        ResetFilters();
+        ResetFilters(resetSortMode: true);
+        return Task.CompletedTask;
+    }
+
+    private Task ShowTasksViewAsync()
+    {
+        CloseAllPopupsAndSidebars();
+        SelectedWatchListItem = null;
+        CurrentMainView = MainViewKind.Tasks;
+        return Task.CompletedTask;
+    }
+
+    private Task ShowWatchListViewAsync()
+    {
+        CloseAllPopupsAndSidebars();
+        SelectedWatchListItem = null;
+        RebuildWatchListItems();
+        CurrentMainView = MainViewKind.WatchList;
+        return Task.CompletedTask;
+    }
+
+    private Task ShowDailySummaryViewAsync()
+    {
+        CloseAllPopupsAndSidebars();
+        SelectedWatchListItem = null;
+        RebuildTaskSummary();
+        CurrentMainView = MainViewKind.DailySummary;
+        return Task.CompletedTask;
+    }
+
+    private async Task ToggleSelectedTaskWatchAsync()
+    {
+        if (SelectedTask is null || string.IsNullOrWhiteSpace(SelectedTask.TaskId))
+        {
+            return;
+        }
+
+        var existing = _watchListEntries.FirstOrDefault(entry =>
+            string.Equals(entry.TaskId, SelectedTask.TaskId, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            _watchListEntries.Add(new WatchListEntry
+            {
+                TaskId = SelectedTask.TaskId,
+                AddedAt = DateTimeOffset.Now
+            });
+            Message = $"Added '{SelectedTask.Task}' to Watch List.";
+        }
+        else
+        {
+            _watchListEntries.Remove(existing);
+            Message = $"Removed '{SelectedTask.Task}' from Watch List.";
+        }
+
+        await _fileStore.SaveWatchListAsync(_watchListEntries);
+        RebuildWatchListItems();
+        OnPropertyChanged(nameof(IsSelectedTaskWatched));
+        OnPropertyChanged(nameof(WatchListActionDisplay));
+        RefreshCommands();
+    }
+
+    private Task OpenSelectedWatchTaskAsync()
+    {
+        if (SelectedWatchListItem is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        SelectedTask = SelectedWatchListItem.TaskItem;
+        IsTaskSidebarOpen = true;
         return Task.CompletedTask;
     }
 
@@ -893,27 +1106,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return Task.CompletedTask;
         }
 
-        IsTaskSummaryOpen = false;
         IsTaskEditorOpen = false;
         IsTaskSidebarOpen = true;
-        return Task.CompletedTask;
-    }
-
-    private Task OpenTaskSummaryAsync()
-    {
-        SelectedTask = null;
-        IsTaskSidebarOpen = false;
-        RebuildTaskSummary();
-        IsTaskSummaryOpen = true;
-        return Task.CompletedTask;
-    }
-
-    private Task CloseTaskSummaryAsync()
-    {
-        IsTaskSummaryOpen = false;
-        SelectedTaskSummaryItem = null;
-        SelectedExpiredTaskSummaryItem = null;
-        SelectedWarningTaskSummaryItem = null;
         return Task.CompletedTask;
     }
 
@@ -925,10 +1119,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         var task = SelectedTaskSummaryItem.TaskItem;
-        IsTaskSummaryOpen = false;
-        SelectedTaskSummaryItem = null;
-        SelectedExpiredTaskSummaryItem = null;
-        SelectedWarningTaskSummaryItem = null;
         SelectedTask = task;
         IsTaskSidebarOpen = true;
         return Task.CompletedTask;
@@ -936,7 +1126,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private Task SnoozeSelectedTaskSummaryItemAsync(int days)
     {
-        return SnoozeSelectedTaskSummaryItemUntilAsync(DateTime.Today.AddDays(days));
+        var currentSnoozeDate = SelectedTaskSummaryItem?.TaskItem.SnoozeUntil?.Date;
+        var startDate = currentSnoozeDate >= DateTime.Today ? currentSnoozeDate.Value : DateTime.Today;
+        return SnoozeSelectedTaskSummaryItemUntilAsync(startDate.AddDays(days));
     }
 
     private Task SnoozeSelectedTaskSummaryItemToCustomDateAsync()
@@ -1099,9 +1291,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             operationType = TaskMutationTypes.Update;
         }
 
-        task.Category = draft.Category.Trim();
-        task.Type = draft.Type.Trim();
-        task.Task = draft.Task.Trim();
+        task.Category = ToTitleCase(draft.Category);
+        task.Type = ToTitleCase(draft.Type);
+        task.Task = ToTitleCase(draft.Task);
         task.ExpiredValue = draft.ExpiredValue;
         task.ExpiredUnit = draft.ExpiredUnit;
         task.WarningValue = draft.WarningValue;
@@ -1116,6 +1308,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SelectedTask = task;
         RebuildFilterLists();
         RebuildTaskSummary();
+        RebuildWatchListItems();
         TasksView.Refresh();
         Message = $"Saved '{task.Task}'. {TaskSyncDisplay}.";
     }
@@ -1146,6 +1339,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         task.Archived = true;
         await QueueAndTryMutationAsync(CreateMutation(task, TaskMutationTypes.Archive));
+        await RemoveTaskFromWatchListAsync(task.TaskId);
         ClearTaskSelection();
         TasksView.Refresh();
         RebuildTaskSummary();
@@ -1218,14 +1412,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Message = $"Checked in at {LastCheckinDisplay}.";
     }
 
-    private Task OpenCheckinSettingsAsync()
+    private Task OpenSettingsAsync()
     {
-        ResetCheckinSettingsDraft();
-        IsCheckinSettingsOpen = true;
+        ResetSettingsDraft();
+        IsSettingsOpen = true;
         return Task.CompletedTask;
     }
 
-    private async Task SaveCheckinSettingsAsync()
+    private async Task SaveSettingsAsync()
     {
         var invalidDay = CheckinSettingsDraft.FirstOrDefault(day => !TryParseCheckinTime(day.TimeText, out _));
         if (invalidDay is not null)
@@ -1234,18 +1428,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        _configDraft.LogRetentionDays = Math.Max(1, _configDraft.LogRetentionDays);
+        _config = CloneAppConfig(_configDraft);
         _checkinSettings.Days = new ObservableCollection<CheckinDaySetting>(
             CheckinSettingsDraft.Select(CloneCheckinDaySetting));
+        await _fileStore.SaveConfigAsync(_config);
         await _fileStore.SaveCheckinSettingsAsync(_checkinSettings);
-        IsCheckinSettingsOpen = false;
-        Message = "Saved check-in notification settings.";
+        AppLogger.PruneOldFiles(_config.LogRetentionDays);
+        IsSettingsOpen = false;
+        Message = "Saved settings.";
+        RefreshCommands();
         await CheckAndNotifyCheckinAsync();
     }
 
-    private Task CancelCheckinSettingsAsync()
+    private Task CancelSettingsAsync()
     {
-        ResetCheckinSettingsDraft();
-        IsCheckinSettingsOpen = false;
+        ResetSettingsDraft();
+        IsSettingsOpen = false;
         return Task.CompletedTask;
     }
 
@@ -1278,6 +1477,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MessageBoxButton.OK,
             MessageBoxImage.Information);
         Message = "Check-in reminder shown.";
+    }
+
+    private void ResetSettingsDraft()
+    {
+        _configDraft = CloneAppConfig(_config);
+        OnPropertyChanged(nameof(GoogleAppsScriptUrl));
+        OnPropertyChanged(nameof(ApiKey));
+        OnPropertyChanged(nameof(LogRetentionDays));
+        ResetCheckinSettingsDraft();
     }
 
     private void ResetCheckinSettingsDraft()
@@ -1330,7 +1538,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        ApplyTaskFilters();
+        foreach (var task in _tasks)
+        {
+            task.NotifyCalculatedFieldsChanged();
+        }
+
+        RebuildTaskSummary();
+        ApplyTaskSort();
+        _lastTaskCalculatedFieldsRefreshDate = today;
     }
 
     private static CheckinDaySetting CloneCheckinDaySetting(CheckinDaySetting source)
@@ -1341,6 +1556,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             DayName = source.DayName,
             IsEnabled = source.IsEnabled,
             TimeText = source.TimeText
+        };
+    }
+
+    private static AppConfig CloneAppConfig(AppConfig source)
+    {
+        return new AppConfig
+        {
+            GoogleAppsScriptUrl = source.GoogleAppsScriptUrl,
+            ApiKey = source.ApiKey,
+            LogRetentionDays = source.LogRetentionDays
         };
     }
 
@@ -1365,49 +1590,46 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ApplyTaskFilters()
     {
-        foreach (var task in _tasks)
-        {
-            task.NotifyCalculatedFieldsChanged();
-        }
-
-        RebuildTaskSummary();
-        ApplyDefaultSort();
         TasksView.Refresh();
-        _lastTaskCalculatedFieldsRefreshDate = DateTime.Today;
     }
 
-    private void ResetFilters()
+    private void ResetFilters(bool resetSortMode)
     {
         _categoryFilter = AllFilter;
         _typeFilter = AllFilter;
         _statusFilter = AllFilter;
-        _dayLeftFilter = AllFilter;
+        _taskSearchText = string.Empty;
+        if (resetSortMode)
+        {
+            _selectedSortMode = NormalSortMode;
+            OnPropertyChanged(nameof(SelectedSortMode));
+        }
         OnPropertyChanged(nameof(CategoryFilter));
         OnPropertyChanged(nameof(TypeFilter));
         OnPropertyChanged(nameof(StatusFilter));
-        OnPropertyChanged(nameof(DayLeftFilter));
+        OnPropertyChanged(nameof(TaskSearchText));
         ApplyTaskFilters();
     }
 
-    private async Task SaveConfigAsync()
+    private void ReplaceTasks(IEnumerable<SheetTask> tasks, bool rebuildSecondaryViews = true)
     {
-        await _fileStore.SaveConfigAsync(_config);
-    }
-
-    private void ReplaceTasks(IEnumerable<SheetTask> tasks)
-    {
-        _tasks.Clear();
-        foreach (var task in tasks)
+        var preparedTasks = tasks.ToList();
+        foreach (var task in preparedTasks)
         {
             task.NotifyCalculatedFieldsChanged();
-            _tasks.Add(task);
         }
+
+        _tasks.ReplaceAll(preparedTasks);
 
         RefreshTaskSyncState();
         RebuildFilterLists();
-        RebuildTaskSummary();
-        ApplyDefaultSort();
-        TasksView.Refresh();
+        if (rebuildSecondaryViews)
+        {
+            RebuildTaskSummary();
+            RebuildWatchListItems();
+            AreSecondaryViewsReady = true;
+        }
+        ApplyTaskSort();
     }
 
     private TaskMutation CreateMutation(SheetTask task, string operationType)
@@ -1505,6 +1727,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             RefreshTaskSyncState();
+            RebuildWatchListItems();
         }
         finally
         {
@@ -1546,6 +1769,120 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RefreshTaskSyncState();
         await _fileStore.SaveTasksAsync(_tasks);
         await _fileStore.SaveTaskSyncQueueAsync(_taskSyncQueue);
+    }
+
+    private async Task RemoveTaskFromWatchListAsync(string taskId)
+    {
+        var removedCount = _watchListEntries.RemoveAll(entry =>
+            string.Equals(entry.TaskId, taskId, StringComparison.OrdinalIgnoreCase));
+        if (removedCount == 0)
+        {
+            return;
+        }
+
+        await _fileStore.SaveWatchListAsync(_watchListEntries);
+        RebuildWatchListItems();
+    }
+
+    private async Task PruneWatchListAsync()
+    {
+        var activeTaskIds = _tasks
+            .Where(task => !task.Archived && !string.IsNullOrWhiteSpace(task.TaskId))
+            .Select(task => task.TaskId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removedCount = _watchListEntries.RemoveAll(entry => !activeTaskIds.Contains(entry.TaskId));
+        if (removedCount > 0)
+        {
+            await _fileStore.SaveWatchListAsync(_watchListEntries);
+        }
+
+        RebuildWatchListItems();
+    }
+
+    private async Task BuildSecondaryViewsAfterStartupAsync()
+    {
+        try
+        {
+            // Let WPF complete the first Tasks layout before preparing hidden views.
+            await Task.Delay(150);
+
+            var taskSnapshot = _tasks.ToList();
+            var watchListSnapshot = _watchListEntries
+                .Select(entry => new WatchListEntry
+                {
+                    TaskId = entry.TaskId,
+                    AddedAt = entry.AddedAt
+                })
+                .ToList();
+
+            var secondaryData = await Task.Run(() => new SecondaryViewData(
+                BuildWatchListRows(taskSnapshot, watchListSnapshot),
+                BuildTaskSummaryRows(taskSnapshot, DateTime.Today)));
+
+            // A sync or edit may have replaced the task set while the snapshot was building.
+            if (taskSnapshot.Count != _tasks.Count
+                || !taskSnapshot.SequenceEqual(_tasks))
+            {
+                RebuildWatchListItems();
+                RebuildTaskSummary();
+            }
+            else
+            {
+                ApplyWatchListRows(secondaryData.WatchListRows);
+                ApplyTaskSummaryRows(secondaryData.SummaryRows);
+            }
+
+            AreSecondaryViewsReady = true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Failed to prepare secondary task views", ex);
+            Message = $"Tasks loaded, but secondary views failed: {ex.Message}";
+        }
+    }
+
+    private void RebuildWatchListItems()
+    {
+        ApplyWatchListRows(BuildWatchListRows(_tasks, _watchListEntries));
+    }
+
+    private static List<WatchListItem> BuildWatchListRows(
+        IEnumerable<SheetTask> tasks,
+        IEnumerable<WatchListEntry> watchListEntries)
+    {
+        var taskById = tasks
+            .Where(task => !task.Archived && !string.IsNullOrWhiteSpace(task.TaskId))
+            .GroupBy(task => task.TaskId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        return watchListEntries
+            .Where(entry => taskById.ContainsKey(entry.TaskId))
+            .Select(entry => new WatchListItem(taskById[entry.TaskId], entry.AddedAt))
+            .OrderBy(item => item.Category, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Type, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Task, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.AddedAt)
+            .ToList();
+    }
+
+    private void ApplyWatchListRows(IEnumerable<WatchListItem> rows)
+    {
+        var selectedTaskId = SelectedWatchListItem?.TaskId;
+
+        _watchListItems.Clear();
+        foreach (var row in rows)
+        {
+            _watchListItems.Add(row);
+        }
+
+        SelectedWatchListItem = selectedTaskId is null
+            ? null
+            : _watchListItems.FirstOrDefault(item =>
+                string.Equals(item.TaskId, selectedTaskId, StringComparison.OrdinalIgnoreCase));
+        OnPropertyChanged(nameof(WatchListDisplay));
+        OnPropertyChanged(nameof(IsSelectedTaskWatched));
+        OnPropertyChanged(nameof(WatchListActionDisplay));
+        RefreshCommands();
     }
 
     private void RefreshTaskSyncState()
@@ -1630,44 +1967,95 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void RebuildTaskSummary()
     {
-        var today = DateTime.Today;
-        var activeTasks = _tasks
-            .Where(task => !task.Completed && !task.Archived && !IsTaskSnoozedForToday(task))
-            .ToList();
+        ApplyTaskSummaryRows(BuildTaskSummaryRows(_tasks, DateTime.Today));
+    }
 
-        ExpiredTaskSummaryItems = new ObservableCollection<TaskSummaryItem>(
-            activeTasks
+    private static TaskSummaryRows BuildTaskSummaryRows(IEnumerable<SheetTask> tasks, DateTime today)
+    {
+        var availableTasks = tasks
+            .Where(task => !task.Completed && !task.Archived)
+            .ToList();
+        var activeTasks = availableTasks.Where(task => !IsTaskSnoozedForToday(task)).ToList();
+
+        var expired = activeTasks
                 .Where(task => task.ExpiredDate?.Date <= today)
                 .OrderBy(task => task.ExpiredDate)
                 .ThenBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
-                .Select(task => new TaskSummaryItem(task, "Expired / Overdue")));
+                .Select(task => new TaskSummaryItem(task, "Expired / Overdue"))
+                .ToList();
 
-        WarningTaskSummaryItems = new ObservableCollection<TaskSummaryItem>(
-            activeTasks
+        var warning = activeTasks
                 .Where(task => task.ExpiredDate?.Date > today && task.WarningDate?.Date <= today)
                 .OrderBy(task => task.WarningDate)
                 .ThenBy(task => task.ExpiredDate)
                 .ThenBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
-                .Select(task => new TaskSummaryItem(task, "Warning")));
+                .Select(task => new TaskSummaryItem(task, "Warning"))
+                .ToList();
 
-        if (SelectedTaskSummaryItem is not null
-            && !ExpiredTaskSummaryItems.Concat(WarningTaskSummaryItems)
-                .Any(item => ReferenceEquals(item.TaskItem, SelectedTaskSummaryItem.TaskItem)))
+        var snoozed = availableTasks
+                .Where(IsTaskSnoozedForToday)
+                .OrderBy(task => task.SnoozeUntil)
+                .ThenBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
+                .Select(task => new TaskSummaryItem(task, "Snoozed"))
+                .ToList();
+
+        return new TaskSummaryRows(expired, warning, snoozed);
+    }
+
+    private void ApplyTaskSummaryRows(TaskSummaryRows rows)
+    {
+        ExpiredTaskSummaryItems = new ObservableCollection<TaskSummaryItem>(rows.Expired);
+        WarningTaskSummaryItems = new ObservableCollection<TaskSummaryItem>(rows.Warning);
+        SnoozedTaskSummaryItems = new ObservableCollection<TaskSummaryItem>(rows.Snoozed);
+
+        if (SelectedTaskSummaryItem is not null)
         {
-            SelectedTaskSummaryItem = null;
-            SelectedExpiredTaskSummaryItem = null;
-            SelectedWarningTaskSummaryItem = null;
+            var refreshedSelection = ExpiredTaskSummaryItems
+                .Concat(WarningTaskSummaryItems)
+                .Concat(SnoozedTaskSummaryItems)
+                .FirstOrDefault(item => ReferenceEquals(item.TaskItem, SelectedTaskSummaryItem.TaskItem));
+            switch (refreshedSelection?.Group)
+            {
+                case "Expired / Overdue":
+                    SelectedExpiredTaskSummaryItem = refreshedSelection;
+                    break;
+                case "Warning":
+                    SelectedWarningTaskSummaryItem = refreshedSelection;
+                    break;
+                case "Snoozed":
+                    SelectedSnoozedTaskSummaryItem = refreshedSelection;
+                    break;
+                default:
+                    SelectedTaskSummaryItem = null;
+                    SelectedExpiredTaskSummaryItem = null;
+                    SelectedWarningTaskSummaryItem = null;
+                    SelectedSnoozedTaskSummaryItem = null;
+                    break;
+            }
         }
 
         OnPropertyChanged(nameof(HasExpiredTaskSummaryItems));
         OnPropertyChanged(nameof(HasWarningTaskSummaryItems));
+        OnPropertyChanged(nameof(HasSnoozedTaskSummaryItems));
         OnPropertyChanged(nameof(TaskSummaryDisplay));
+        OnPropertyChanged(nameof(DailySummaryViewDisplay));
         RefreshCommands();
     }
+
+    private sealed record TaskSummaryRows(
+        List<TaskSummaryItem> Expired,
+        List<TaskSummaryItem> Warning,
+        List<TaskSummaryItem> Snoozed);
+
+    private sealed record SecondaryViewData(
+        List<WatchListItem> WatchListRows,
+        TaskSummaryRows SummaryRows);
 
     private static bool IsTaskSnoozedForToday(SheetTask task)
     {
@@ -1681,12 +2069,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
             && string.Equals(item.TaskId, task.TaskId, StringComparison.OrdinalIgnoreCase));
     }
 
-    private void ApplyDefaultSort()
+    private void ApplyTaskSort()
     {
-        TasksView.SortDescriptions.Clear();
-        TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.Category), ListSortDirection.Ascending));
-        TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.Type), ListSortDirection.Ascending));
-        TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.Task), ListSortDirection.Ascending));
+        using (TasksView.DeferRefresh())
+        {
+            TasksView.SortDescriptions.Clear();
+            if (_selectedSortMode == PrioritySortMode)
+            {
+                TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.PriorityRank), ListSortDirection.Ascending));
+            }
+
+            TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.Category), ListSortDirection.Ascending));
+            TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.Type), ListSortDirection.Ascending));
+            TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.Task), ListSortDirection.Ascending));
+        }
     }
 
     private void RebuildFilterLists()
@@ -1732,7 +2128,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             && Matches(_categoryFilter, task.Category)
             && Matches(_typeFilter, task.Type)
             && MatchesStatus(_statusFilter, task)
-            && MatchesDayLeft(task.DayLeft);
+            && (string.IsNullOrWhiteSpace(_taskSearchText)
+                || task.Task.Contains(_taskSearchText.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool Matches(string filter, string value)
@@ -1757,6 +2154,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return string.IsNullOrWhiteSpace(value) ? AllFilter : value;
     }
 
+    private static string ToTitleCase(string value)
+    {
+        var culture = CultureInfo.CurrentCulture;
+        return culture.TextInfo.ToTitleCase(value.Trim().ToLower(culture));
+    }
+
     private static string FormatDate(DateTime date)
     {
         return date.ToString("dd MMM yyyy");
@@ -1768,19 +2171,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             .Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
-    private bool MatchesDayLeft(int? dayLeft)
-    {
-        return _dayLeftFilter switch
-        {
-            "Overdue" => dayLeft is < 0,
-            "Due today" => dayLeft == 0,
-            "Next 7 days" => dayLeft is >= 0 and <= 7,
-            "More than 7 days" => dayLeft is > 7,
-            _ => true
-        };
-    }
-
     private bool CanUseNetwork() => !IsBusy;
+
+    private bool CanOpenSecondaryView() => AreSecondaryViewsReady;
 
     private bool CanMutateSelectedTask()
     {
@@ -1798,6 +2191,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool CanOpenSelectedTaskSidebar()
     {
         return SelectedTask is not null && !SelectedTask.Archived;
+    }
+
+    private bool CanToggleSelectedTaskWatch()
+    {
+        return SelectedTask is not null
+            && !SelectedTask.Archived
+            && !string.IsNullOrWhiteSpace(SelectedTask.TaskId);
+    }
+
+    private bool HasSelectedWatchListItem()
+    {
+        return SelectedWatchListItem is not null;
     }
 
     private bool HasTaskConflicts()
@@ -1866,6 +2271,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SnoozeTaskSummary30DaysCommand.RaiseCanExecuteChanged();
         SnoozeTaskSummaryCustomCommand.RaiseCanExecuteChanged();
         ClearTaskSummarySnoozeCommand.RaiseCanExecuteChanged();
+        ToggleSelectedTaskWatchCommand.RaiseCanExecuteChanged();
+        OpenSelectedWatchTaskCommand.RaiseCanExecuteChanged();
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -1873,6 +2280,38 @@ public sealed class MainViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
+}
+
+public enum MainViewKind
+{
+    Tasks,
+    WatchList,
+    DailySummary
+}
+
+public sealed class WatchListItem
+{
+    public WatchListItem(SheetTask taskItem, DateTimeOffset addedAt)
+    {
+        TaskItem = taskItem;
+        AddedAt = addedAt;
+    }
+
+    public SheetTask TaskItem { get; }
+
+    public string TaskId => TaskItem.TaskId;
+
+    public string Category => TaskItem.Category;
+
+    public string Type => TaskItem.Type;
+
+    public string Task => TaskItem.Task;
+
+    public int? DayLeft => TaskItem.DayLeft;
+
+    public DateTimeOffset AddedAt { get; }
+
+    public DateTime DateAdded => AddedAt.LocalDateTime.Date;
 }
 
 public sealed class TaskSummaryItem
@@ -1901,11 +2340,26 @@ public sealed class TaskSummaryItem
 
     public string TypeBadge => string.IsNullOrWhiteSpace(Type) ? "No Type" : Type;
 
-    public string SeverityBrush => Group == "Expired / Overdue" ? "#B42318" : "#B7791F";
+    public string SeverityBrush => Group switch
+    {
+        "Expired / Overdue" => "#B42318",
+        "Snoozed" => "#2F6F9F",
+        _ => "#B7791F"
+    };
 
-    public string SeverityBackground => Group == "Expired / Overdue" ? "#FFF1F0" : "#FFF8DB";
+    public string SeverityBackground => Group switch
+    {
+        "Expired / Overdue" => "#FFF1F0",
+        "Snoozed" => "#EEF6FC",
+        _ => "#FFF8DB"
+    };
 
-    public string SeverityBorder => Group == "Expired / Overdue" ? "#F3B4AE" : "#EBCB73";
+    public string SeverityBorder => Group switch
+    {
+        "Expired / Overdue" => "#F3B4AE",
+        "Snoozed" => "#A9CBE3",
+        _ => "#EBCB73"
+    };
 
     public string DateLine
     {
@@ -1956,6 +2410,8 @@ public sealed class TaskSummaryItem
     public string GoogleTask => TaskItem.GoogleTaskDisplay;
 
     public string Sync => TaskItem.SyncState;
+
+    public Visibility AlertVisibility => TaskItem.Alert ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility RemarkVisibility => string.IsNullOrWhiteSpace(RemarkPreview)
         ? Visibility.Collapsed

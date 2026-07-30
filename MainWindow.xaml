@@ -18,8 +18,6 @@
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
-        <Geometry x:Key="SettingsGearGeometry">M10,1.2 L12,1.2 L12.6,3.4 C13.1,3.6 13.6,3.8 14,4.1 L16,3 L17,4.7 L15.5,6.4 C15.7,6.9 15.9,7.4 16,8 L18.2,8.8 L18.2,10.8 L16,11.5 C15.9,12.1 15.7,12.6 15.4,13.1 L16.7,15 L15.1,16.4 L13.2,15.3 C12.7,15.6 12.2,15.8 11.6,15.9 L10.9,18 L8.8,18 L8.2,15.9 C7.6,15.8 7.1,15.6 6.6,15.3 L4.7,16.4 L3.2,14.9 L4.4,13.1 C4.1,12.6 3.9,12.1 3.8,11.5 L1.8,10.8 L1.8,8.8 L3.8,8 C3.9,7.4 4.1,6.9 4.4,6.4 L3,4.7 L4.6,3.1 L6.6,4.1 C7.1,3.8 7.6,3.6 8.2,3.4 Z M10,6.3 A3.7,3.7 0,1 0,10,13.7 A3.7,3.7 0,1 0,10,6.3</Geometry>
-
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="#18202A" />
         </Style>
@@ -82,69 +80,70 @@
             </Setter>
         </Style>
 
-        <Style TargetType="TabItem">
-            <Setter Property="Padding" Value="18,9" />
-            <Setter Property="Margin" Value="0" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+        <Style x:Key="PngIconButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+            <Setter Property="Background" Value="#F8FAFC" />
+            <Setter Property="BorderBrush" Value="#C8CED8" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="ContentTemplate" Value="{x:Null}" />
+        </Style>
+
+        <Style x:Key="SegmentedListBoxStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="#EEF2F7" />
+            <Setter Property="BorderBrush" Value="#C8CED8" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="2" />
+            <Setter Property="Height" Value="32" />
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="TabItem">
-                        <Border x:Name="TabBorder"
-                                Background="#ECEFF3"
-                                BorderBrush="#AEB7C3"
-                                BorderThickness="1"
-                                Padding="{TemplateBinding Padding}"
-                                Margin="0,0,-1,0">
-                            <ContentPresenter ContentSource="Header"
-                                              HorizontalAlignment="Center"
-                                              VerticalAlignment="Center" />
+                    <ControlTemplate TargetType="ListBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ItemsPresenter />
                         </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="TabBorder" Property="Background" Value="White" />
-                                <Setter TargetName="TabBorder" Property="BorderThickness" Value="1,1,1,0" />
-                                <Setter Property="Panel.ZIndex" Value="1" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <Style x:Key="StatusCellStyle" TargetType="TextBlock">
-            <Setter Property="Padding" Value="6,0" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="TextAlignment" Value="Center" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Status}" Value="Expired">
-                    <Setter Property="Foreground" Value="#8A1F1F" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Warning">
-                    <Setter Property="Foreground" Value="#7A4A00" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Completed">
-                    <Setter Property="Foreground" Value="#1F7A46" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="DayLeftCellStyle" TargetType="TextBlock">
-            <Setter Property="Padding" Value="6,0" />
-            <Setter Property="TextAlignment" Value="Right" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Status}" Value="Expired">
-                    <Setter Property="Foreground" Value="#8A1F1F" />
-                    <Setter Property="FontWeight" Value="SemiBold" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Warning">
-                    <Setter Property="Foreground" Value="#7A4A00" />
-                    <Setter Property="FontWeight" Value="SemiBold" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Completed">
-                    <Setter Property="Foreground" Value="#1F7A46" />
-                    <Setter Property="FontWeight" Value="SemiBold" />
-                </DataTrigger>
-            </Style.Triggers>
+        <Style x:Key="SegmentedListBoxItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="12,5" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#546171" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Segment"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Segment" Property="Background" Value="White" />
+                                <Setter Property="Foreground" Value="#18202A" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Segment" Property="Background" Value="#E2E8F0" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True" />
+                                    <Condition Property="IsMouseOver" Value="True" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Segment" Property="Background" Value="White" />
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="SidebarDayLeftStyle" TargetType="TextBlock">
@@ -180,9 +179,25 @@
             </Style.Triggers>
         </Style>
 
+        <Style x:Key="TaskGridCellStyle" TargetType="DataGridCell">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#DCEBFF" />
+                    <Setter Property="Foreground" Value="#18202A" />
+                    <Setter Property="BorderBrush" Value="#9CBFEB" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
 
-        <Style x:Key="RemarkPreviewTextStyle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+        <Style x:Key="TaskGridTextStyle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="Margin" Value="6,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+
+        <Style x:Key="RemarkPreviewTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
             <Setter Property="ToolTip" Value="{x:Null}" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding HasMultiLineRemark}" Value="True">
@@ -206,7 +221,8 @@
                     Background="{Binding SeverityBackground}"
                     BorderBrush="{Binding SeverityBorder}"
                     BorderThickness="1"
-                    MinHeight="78">
+                    MinHeight="62"
+                    HorizontalAlignment="Stretch">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="6" />
@@ -219,39 +235,52 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal">
-                            <TextBlock Text="{Binding Task}"
-                                       FontSize="15"
-                                       FontWeight="SemiBold"
-                                       TextTrimming="CharacterEllipsis"
-                                       MaxWidth="290" />
+                        <TextBlock Grid.Row="0"
+                                   Grid.Column="0"
+                                   Text="{Binding Task}"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   MaxWidth="420"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+
+                        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0">
                             <Border Background="White"
                                     BorderBrush="#CBD5E1"
                                     BorderThickness="1"
-                                    Padding="6,2"
-                                    Margin="8,0,0,0">
-                                <TextBlock Text="{Binding CategoryBadge}" FontSize="11" Foreground="#27313D" />
+                                    Padding="6,2">
+                                <TextBlock Text="{Binding CategoryBadge}"
+                                           FontSize="11"
+                                           Foreground="#27313D"
+                                           MaxWidth="150"
+                                           TextTrimming="CharacterEllipsis" />
                             </Border>
                             <Border Background="White"
                                     BorderBrush="#CBD5E1"
                                     BorderThickness="1"
                                     Padding="6,2"
                                     Margin="4,0,0,0">
-                                <TextBlock Text="{Binding TypeBadge}" FontSize="11" Foreground="#27313D" />
+                                <TextBlock Text="{Binding TypeBadge}"
+                                           FontSize="11"
+                                           Foreground="#27313D"
+                                           MaxWidth="150"
+                                           TextTrimming="CharacterEllipsis" />
                             </Border>
                         </StackPanel>
 
                         <Border Grid.Row="0"
-                                Grid.Column="1"
+                                Grid.Column="2"
                                 Background="{Binding DayStateBrush}"
                                 Padding="8,3"
+                                Margin="8,0,0,0"
                                 VerticalAlignment="Top">
                             <TextBlock Text="{Binding DayState}"
                                        Foreground="White"
@@ -259,29 +288,37 @@
                                        FontWeight="SemiBold" />
                         </Border>
 
-                        <TextBlock Grid.Row="1"
-                                   Grid.ColumnSpan="2"
-                                   Text="{Binding DateLine}"
-                                   Margin="0,6,0,0"
-                                   Foreground="#546171"
-                                   FontSize="12"
-                                   TextTrimming="CharacterEllipsis" />
-
-                        <Grid Grid.Row="2" Grid.ColumnSpan="2" Margin="0,6,0,0">
+                        <Grid Grid.Row="1" Grid.ColumnSpan="4" Margin="0,7,0,0">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
 
-                            <TextBlock Text="{Binding RemarkPreview}"
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding DateLine}"
+                                       Foreground="#546171"
+                                       FontSize="12"
+                                       MaxWidth="360"
+                                       TextTrimming="CharacterEllipsis" />
+
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding RemarkPreview}"
                                        Visibility="{Binding RemarkVisibility}"
-                                       TextWrapping="Wrap"
                                        TextTrimming="CharacterEllipsis"
-                                       MaxHeight="36"
+                                       MaxWidth="360"
+                                       Margin="18,0,0,0"
                                        Foreground="#27313D"
                                        ToolTip="{Binding TaskItem.Remark}" />
 
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="12,0,0,0">
+                                <Border Background="#EAF7EF"
+                                        Padding="6,2"
+                                        Margin="0,0,4,0"
+                                        Visibility="{Binding AlertVisibility}">
+                                    <TextBlock Text="Alert" FontSize="11" FontWeight="SemiBold" Foreground="#1F7A46" />
+                                </Border>
                                 <Border Background="#EAF2FF"
                                         Padding="6,2"
                                         Margin="0,0,4,0"
@@ -307,9 +344,7 @@
         </DataTemplate>
     </Window.Resources>
 
-    <TabControl Margin="22">
-        <TabItem Header="TASK">
-            <Grid Margin="14">
+    <Grid Margin="22">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -323,7 +358,55 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel>
-                        <TextBlock Text="Life Sync Personal Tracker" FontSize="24" FontWeight="SemiBold" />
+                        <StackPanel>
+                            <TextBlock Text="Life Sync Personal Tracker" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Border Margin="0,7,0,0" HorizontalAlignment="Left" Background="#EEF2F7" BorderBrush="#C8CED8" BorderThickness="1" Padding="2">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Tasks" Command="{Binding ShowTasksViewCommand}" Padding="14,5">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="Foreground" Value="#546171" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsTasksView}" Value="True">
+                                                        <Setter Property="Background" Value="White" />
+                                                        <Setter Property="Foreground" Value="#18202A" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <Button Content="{Binding WatchListDisplay}" Command="{Binding ShowWatchListViewCommand}" Padding="14,5">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="Foreground" Value="#546171" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsWatchListView}" Value="True">
+                                                        <Setter Property="Background" Value="White" />
+                                                        <Setter Property="Foreground" Value="#18202A" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <Button Content="{Binding DailySummaryViewDisplay}" Command="{Binding ShowDailySummaryViewCommand}" Padding="14,5">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="Foreground" Value="#546171" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsDailySummaryView}" Value="True">
+                                                        <Setter Property="Background" Value="White" />
+                                                        <Setter Property="Foreground" Value="#18202A" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
                         <TextBlock Text="{Binding Message}" Margin="0,5,0,0" Foreground="#546171" />
                     </StackPanel>
 
@@ -348,22 +431,9 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
-                        <Button ToolTip="Check-in Settings" Command="{Binding OpenCheckinSettingsCommand}" Style="{StaticResource IconButtonStyle}" ContentTemplate="{x:Null}" Margin="0,0,8,0" Background="#65758B">
-                            <Viewbox Width="20" Height="20">
-                                <Path Stroke="White"
-                                      StrokeThickness="1.8"
-                                      StrokeLineJoin="Round"
-                                      StrokeStartLineCap="Round"
-                                      StrokeEndLineCap="Round"
-                                      Fill="Transparent"
-                                      Data="{StaticResource SettingsGearGeometry}" />
-                            </Viewbox>
+                        <Button ToolTip="Settings" Command="{Binding OpenSettingsCommand}" Style="{StaticResource PngIconButtonStyle}" Margin="0,0,8,0">
+                            <Image Source="Assets/Icons/settings.png" Width="20" Height="20" SnapsToDevicePixels="True" />
                         </Button>
-                        <Button Content="{Binding TaskSummaryDisplay}"
-                                ToolTip="Daily Summary"
-                                Command="{Binding OpenTaskSummaryCommand}"
-                                Margin="0,0,8,0"
-                                Background="#2F6F9F" />
                         <Button Content="Conflicts"
                                 ToolTip="Review Sync Conflicts"
                                 Command="{Binding OpenTaskConflictsCommand}"
@@ -382,81 +452,98 @@
                 BorderBrush="#D9DEE7"
                 BorderThickness="1"
                 Padding="14"
-                Margin="0,0,0,14">
+                Margin="0,0,0,14"
+                Visibility="{Binding IsTasksView, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="170" />
-                            <ColumnDefinition Width="170" />
-                            <ColumnDefinition Width="170" />
-                            <ColumnDefinition Width="170" />
+                            <ColumnDefinition Width="190" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="190" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="145" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="10" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Row="0" Grid.ColumnSpan="6" Orientation="Horizontal" Margin="0,0,0,12">
-                            <TextBlock Text="Apps Script URL" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <TextBox Text="{Binding GoogleAppsScriptUrl, UpdateSourceTrigger=PropertyChanged}" Width="470" Margin="0,0,18,0" />
-                            <TextBlock Text="API Key" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <TextBox Text="{Binding ApiKey, UpdateSourceTrigger=PropertyChanged}" Width="160" Margin="0,0,18,0" />
-                            <TextBlock Text="Log Days" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <TextBox Text="{Binding LogRetentionDays, UpdateSourceTrigger=PropertyChanged}" Width="70" />
-                        </StackPanel>
-
-                        <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,12,0">
+                        <StackPanel Grid.Column="0">
                             <TextBlock Text="Category" Margin="0,0,0,5" FontWeight="SemiBold" />
                             <ComboBox ItemsSource="{Binding Categories}"
-                              SelectedValue="{Binding CategoryFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                      SelectedValue="{Binding CategoryFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="190"
+                                      HorizontalAlignment="Left" />
                         </StackPanel>
 
-                        <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,12,0">
+                        <StackPanel Grid.Column="2">
                             <TextBlock Text="Type" Margin="0,0,0,5" FontWeight="SemiBold" />
                             <ComboBox ItemsSource="{Binding Types}"
-                              SelectedValue="{Binding TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                      SelectedValue="{Binding TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="190"
+                                      HorizontalAlignment="Left" />
                         </StackPanel>
 
-                        <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,12,0">
-                            <TextBlock Text="Day Left" Margin="0,0,0,5" FontWeight="SemiBold" />
-                            <ComboBox ItemsSource="{Binding DayLeftFilters}"
-                              SelectedItem="{Binding DayLeftFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="Search Task" Margin="0,0,0,5" FontWeight="SemiBold" />
+                            <TextBox Text="{Binding TaskSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="160"
+                                     HorizontalAlignment="Left"
+                                     ToolTip="Filter by task name" />
                         </StackPanel>
 
-                        <StackPanel Grid.Row="1" Grid.Column="3" Margin="0,0,12,0">
+                        <StackPanel Grid.Column="6">
                             <TextBlock Text="Status" Margin="0,0,0,5" FontWeight="SemiBold" />
                             <ComboBox ItemsSource="{Binding Statuses}"
-                              SelectedItem="{Binding StatusFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                      SelectedItem="{Binding StatusFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="145"
+                                      HorizontalAlignment="Left" />
                         </StackPanel>
 
-                        <Button Grid.Row="1"
-                        Grid.Column="4"
-                        Content="⨯"
-                        ToolTip="Clear Filters"
-                        Command="{Binding ClearFiltersCommand}"
-                        Background="#65758B"
-                        VerticalAlignment="Bottom"
-                        Style="{StaticResource IconButtonStyle}" />
+                        <StackPanel Grid.Column="8">
+                            <TextBlock Text="Mode" Margin="0,0,0,5" FontWeight="SemiBold" />
+                            <ListBox ItemsSource="{Binding SortModes}"
+                                     SelectedItem="{Binding SelectedSortMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource SegmentedListBoxStyle}"
+                                     ItemContainerStyle="{StaticResource SegmentedListBoxItemStyle}">
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                            </ListBox>
+                        </StackPanel>
+
+                        <Button Grid.Column="10"
+                                ToolTip="Clear Filters"
+                                Command="{Binding ClearFiltersCommand}"
+                                VerticalAlignment="Bottom"
+                                Style="{StaticResource PngIconButtonStyle}">
+                            <Image Source="Assets/Icons/cancel.png" Width="20" Height="20" SnapsToDevicePixels="True" />
+                        </Button>
                     </Grid>
                 </Border>
 
                 <Grid Grid.Row="2" ClipToBounds="True">
                     <DataGrid x:Name="TasksGrid"
                       ItemsSource="{Binding TasksView}"
-                      IsVisibleChanged="DataGrid_IsVisibleChanged"
-                      Sorting="TasksGrid_Sorting"
                       SelectedItem="{Binding SelectedTask, Mode=TwoWay}"
                       PreviewMouseLeftButtonDown="TasksGrid_PreviewMouseLeftButtonDown"
                       MouseDoubleClick="TasksGrid_MouseDoubleClick"
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"
                       CanUserDeleteRows="False"
-                      CanUserSortColumns="True"
+                      CanUserSortColumns="False"
                       IsReadOnly="True"
                       SelectionMode="Single"
                       SelectionUnit="FullRow"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      ScrollViewer.CanContentScroll="True"
                       GridLinesVisibility="Horizontal"
                       HeadersVisibility="Column"
                               Background="White"
@@ -466,56 +553,165 @@
                       ColumnHeaderHeight="30"
                       RowHeight="28"
                       HorizontalGridLinesBrush="#E5E9F0"
-                      RowStyle="{StaticResource TaskRowStyle}">
+                      CellStyle="{StaticResource TaskGridCellStyle}"
+                      RowStyle="{StaticResource TaskRowStyle}"
+                      Visibility="{Binding IsTasksView, Converter={StaticResource BoolToVisibilityConverter}}">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="115" CanUserSort="False" />
-                            <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="120" CanUserSort="False" />
-                            <DataGridTextColumn Header="Task" Binding="{Binding Task}" Width="240" CanUserSort="False" />
-                            <DataGridTextColumn Header="Sync" Binding="{Binding SyncState}" Width="75" CanUserSort="False" />
-                            <DataGridTextColumn Header="Expired Date" Binding="{Binding ExpiredDate, StringFormat={}{0:dd MMM yyyy}}" Width="115" CanUserSort="False" />
-                            <DataGridTextColumn Header="Warning Date" Binding="{Binding WarningDate, StringFormat={}{0:dd MMM yyyy}}" Width="115" CanUserSort="False" />
-                            <DataGridTextColumn Header="Day Left" Binding="{Binding DayLeft}" Width="80" ElementStyle="{StaticResource DayLeftCellStyle}" CanUserSort="True" />
-                            <DataGridTextColumn Header="Day Passed" Binding="{Binding DayPassed}" Width="90" ElementStyle="{StaticResource DayLeftCellStyle}" CanUserSort="False" />
-                            <DataGridTextColumn Header="Last Executed Date" Binding="{Binding PreviousDate1, StringFormat={}{0:dd MMM yyyy}}" Width="135" CanUserSort="False" />
-                            <DataGridTextColumn Header="Remark" Binding="{Binding RemarkPreview}" Width="*" MinWidth="220" ElementStyle="{StaticResource RemarkPreviewTextStyle}" CanUserSort="False" />
-                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="150" ElementStyle="{StaticResource StatusCellStyle}" CanUserSort="False" />
+                            <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="105" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                            <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="110" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                            <DataGridTextColumn Header="Task" Binding="{Binding Task}" Width="220" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                            <DataGridTemplateColumn Header="Expired Date" Width="175" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="6,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding ExpiredDateDisplay}" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="{Binding ExpiredDayDisplay}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="#546171" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Warning Date" Binding="{Binding WarningDateDisplay}" Width="115" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                            <DataGridTemplateColumn Header="Alert Date" Width="175" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="6,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding AlertDateDisplay}" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="{Binding AlertDayDisplay}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="#546171" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Last Executed Date" Width="185" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="6,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding LastExecutedDateDisplay}" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="{Binding LastExecutedDayDisplay}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="#546171" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Remark" Binding="{Binding RemarkPreview}" Width="*" MinWidth="180" ElementStyle="{StaticResource RemarkPreviewTextStyle}" CanUserSort="False" />
+                            <DataGridTemplateColumn Header="State" Width="92" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="&#xE7ED;" FontFamily="Segoe MDL2 Assets" FontSize="15" Margin="0,0,10,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Setter Property="Foreground" Value="#AEB7C3" />
+                                                        <Setter Property="ToolTip" Value="Alert disabled" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Alert}" Value="True">
+                                                                <Setter Property="Foreground" Value="#1F7A46" />
+                                                                <Setter Property="ToolTip" Value="Alert enabled" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="&#xE895;" FontFamily="Segoe MDL2 Assets" FontSize="15" Margin="0,0,10,0" ToolTip="{Binding SyncState}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Setter Property="Foreground" Value="#1F7A46" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding SyncState}" Value="Pending">
+                                                                <Setter Property="Foreground" Value="#B7791F" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding SyncState}" Value="Conflict">
+                                                                <Setter Property="Foreground" Value="#B42318" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="●" FontSize="14" ToolTip="{Binding Status}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Setter Property="Foreground" Value="#1F7A46" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Warning">
+                                                                <Setter Property="Foreground" Value="#B7791F" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Expired">
+                                                                <Setter Property="Foreground" Value="#B42318" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Not Started">
+                                                                <Setter Property="Foreground" Value="#65758B" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <Border Width="640"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Stretch"
+                    <Grid Visibility="{Binding IsWatchListView, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Watch List" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Content="Open" Command="{Binding OpenSelectedWatchTaskCommand}" />
+                        </Grid>
+                        <DataGrid x:Name="WatchListGrid"
+                                  Grid.Row="1"
+                                  ItemsSource="{Binding WatchListItems}"
+                                  SelectedItem="{Binding SelectedWatchListItem, Mode=TwoWay}"
+                                  MouseDoubleClick="WatchListGrid_MouseDoubleClick"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  CanUserSortColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionMode="Single"
+                                  SelectionUnit="FullRow"
+                                  GridLinesVisibility="Horizontal"
+                                  HeadersVisibility="Column"
+                                  Background="White"
+                                  BorderBrush="#D9DEE7"
+                                  BorderThickness="1"
+                                  RowHeaderWidth="0"
+                                  ColumnHeaderHeight="30"
+                                  RowHeight="28"
+                                  HorizontalGridLinesBrush="#E5E9F0">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="180" CanUserSort="False" />
+                                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="180" CanUserSort="False" />
+                                <DataGridTextColumn Header="Task" Binding="{Binding Task}" Width="*" MinWidth="280" CanUserSort="False" />
+                                <DataGridTextColumn Header="Day Left" Binding="{Binding DayLeft}" Width="100" CanUserSort="False" />
+                                <DataGridTextColumn Header="Date Added" Binding="{Binding DateAdded, StringFormat={}{0:dd MMM yyyy}}" Width="130" CanUserSort="False" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+
+                    <Border VerticalAlignment="Stretch"
                             Background="White"
-                            BorderBrush="#C8CED8"
-                            BorderThickness="1,0,0,1"
+                            BorderBrush="#D9DEE7"
+                            BorderThickness="1"
                             Padding="16"
-                            Panel.ZIndex="3">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="18" ShadowDepth="0" Opacity="0.22" Color="#526071" />
-                        </Border.Effect>
-                        <Border.RenderTransform>
-                            <TranslateTransform X="660" />
-                        </Border.RenderTransform>
-                        <Border.Style>
-                            <Style TargetType="Border">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsTaskSummaryOpen}" Value="True">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                        <DataTrigger.EnterActions>
-                                            <BeginStoryboard>
-                                                <Storyboard>
-                                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
-                                                                     From="660"
-                                                                     To="0"
-                                                                     Duration="0:0:0.22" />
-                                                </Storyboard>
-                                            </BeginStoryboard>
-                                        </DataTrigger.EnterActions>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
+                            Visibility="{Binding IsDailySummaryView, Converter={StaticResource BoolToVisibilityConverter}}">
 
                         <Grid>
                             <Grid.RowDefinitions>
@@ -525,21 +721,10 @@
                             </Grid.RowDefinitions>
 
                             <Grid Grid.Row="0" Margin="0,0,0,14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <TextBlock Text="Daily Summary" FontSize="18" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding TaskSummaryDisplay}" Margin="0,4,18,0" Foreground="#546171" />
+                                    <TextBlock Text="{Binding TaskSummaryDisplay}" Margin="0,4,0,0" Foreground="#546171" />
                                 </StackPanel>
-                                <Button Grid.Column="1"
-                                        Content="X"
-                                        ToolTip="Close"
-                                        Command="{Binding CloseTaskSummaryCommand}"
-                                        Style="{StaticResource IconButtonStyle}"
-                                        Background="#65758B"
-                                        VerticalAlignment="Top" />
                             </Grid>
 
                             <Grid Grid.Row="1" Margin="0,0,0,14">
@@ -556,11 +741,11 @@
                                            Margin="0,0,0,8" />
                                 <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
                                     <Button Content="Open" Command="{Binding OpenSelectedTaskSummaryItemCommand}" Margin="0,0,8,0" />
-                                    <Button Content="1 day" Command="{Binding SnoozeTaskSummary1DayCommand}" Margin="0,0,6,0" />
-                                    <Button Content="3 days" Command="{Binding SnoozeTaskSummary3DaysCommand}" Margin="0,0,6,0" />
-                                    <Button Content="7 days" Command="{Binding SnoozeTaskSummary7DaysCommand}" Margin="0,0,6,0" />
-                                    <Button Content="14 days" Command="{Binding SnoozeTaskSummary14DaysCommand}" Margin="0,0,6,0" />
-                                    <Button Content="30 days" Command="{Binding SnoozeTaskSummary30DaysCommand}" Margin="0,0,8,0" />
+                                    <Button Content="+1 day" ToolTip="Snooze or extend by 1 day" Command="{Binding SnoozeTaskSummary1DayCommand}" Margin="0,0,6,0" />
+                                    <Button Content="+3 days" ToolTip="Snooze or extend by 3 days" Command="{Binding SnoozeTaskSummary3DaysCommand}" Margin="0,0,6,0" />
+                                    <Button Content="+7 days" ToolTip="Snooze or extend by 7 days" Command="{Binding SnoozeTaskSummary7DaysCommand}" Margin="0,0,6,0" />
+                                    <Button Content="+14 days" ToolTip="Snooze or extend by 14 days" Command="{Binding SnoozeTaskSummary14DaysCommand}" Margin="0,0,6,0" />
+                                    <Button Content="+30 days" ToolTip="Snooze or extend by 30 days" Command="{Binding SnoozeTaskSummary30DaysCommand}" Margin="0,0,8,0" />
                                     <Button Content="Clear Snooze" Command="{Binding ClearTaskSummarySnoozeCommand}" Background="#65758B" />
                                 </StackPanel>
                                 <StackPanel Grid.Row="2" Orientation="Horizontal">
@@ -596,6 +781,7 @@
                                     <ListBox ItemsSource="{Binding ExpiredTaskSummaryItems}"
                                              SelectedItem="{Binding SelectedExpiredTaskSummaryItem, Mode=TwoWay}"
                                              ItemTemplate="{StaticResource TaskSummaryItemTemplate}"
+                                             HorizontalContentAlignment="Stretch"
                                              BorderThickness="0"
                                              Background="Transparent"
                                              Margin="0,0,0,16"
@@ -620,9 +806,34 @@
                                     <ListBox ItemsSource="{Binding WarningTaskSummaryItems}"
                                              SelectedItem="{Binding SelectedWarningTaskSummaryItem, Mode=TwoWay}"
                                              ItemTemplate="{StaticResource TaskSummaryItemTemplate}"
+                                             HorizontalContentAlignment="Stretch"
                                              BorderThickness="0"
                                              Background="Transparent"
+                                             Margin="0,0,0,16"
                                              Visibility="{Binding HasWarningTaskSummaryItems, Converter={StaticResource BoolToVisibilityConverter}}"
+                                             PreviewMouseWheel="TaskSummaryList_PreviewMouseWheel"
+                                             ScrollViewer.VerticalScrollBarVisibility="Disabled" />
+
+                                    <TextBlock Text="Snoozed" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock Text="No snoozed tasks" Foreground="#65758B">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasSnoozedTaskSummaryItems}" Value="True">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <ListBox ItemsSource="{Binding SnoozedTaskSummaryItems}"
+                                             SelectedItem="{Binding SelectedSnoozedTaskSummaryItem, Mode=TwoWay}"
+                                             ItemTemplate="{StaticResource TaskSummaryItemTemplate}"
+                                             HorizontalContentAlignment="Stretch"
+                                             BorderThickness="0"
+                                             Background="Transparent"
+                                             Visibility="{Binding HasSnoozedTaskSummaryItems, Converter={StaticResource BoolToVisibilityConverter}}"
                                              PreviewMouseWheel="TaskSummaryList_PreviewMouseWheel"
                                              ScrollViewer.VerticalScrollBarVisibility="Disabled" />
                                 </StackPanel>
@@ -688,12 +899,12 @@
                                     <TextBlock Text="{Binding SelectedTaskGoogleTaskDisplay}" Margin="0,2,18,0" Foreground="#546171" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
                                 <Button Grid.Column="1"
-                                Content="X"
-                                ToolTip="Close"
-                                Command="{Binding CloseTaskSidebarCommand}"
-                                Style="{StaticResource IconButtonStyle}"
-                                Background="#65758B"
-                                VerticalAlignment="Top" />
+                                        ToolTip="Close Selected Task"
+                                        Command="{Binding CloseTaskSidebarCommand}"
+                                        Style="{StaticResource PngIconButtonStyle}"
+                                        VerticalAlignment="Top">
+                                    <Image Source="Assets/Icons/close.png" Width="20" Height="20" SnapsToDevicePixels="True" />
+                                </Button>
                             </Grid>
 
                             <Grid Grid.Row="1" Margin="0,0,0,18">
@@ -732,6 +943,14 @@
                                         Margin="8,22,0,0"
                                         VerticalAlignment="Top"
                                         Background="#8A3B2D" />
+
+                                <Button Grid.Column="4"
+                                        Content="{Binding WatchListActionDisplay}"
+                                        Command="{Binding ToggleSelectedTaskWatchCommand}"
+                                        Margin="8,22,0,0"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Top"
+                                        Background="#2F6F9F" />
                             </Grid>
 
                             <StackPanel Grid.Row="2">
@@ -782,12 +1001,34 @@
                                 </Grid.RowDefinitions>
 
                                 <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,12">
-                                    <TextBlock Text="Category" FontWeight="SemiBold" Margin="0,0,0,5" />
-                                    <TextBox Text="{Binding TaskEditDraft.Category, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Category" FontWeight="SemiBold" Margin="0,0,10,0" VerticalAlignment="Center" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding TaskCategoryOptions}"
+                                                  Text="{Binding TaskEditDraft.Category, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  IsEditable="True"
+                                                  IsTextSearchEnabled="True"
+                                                  StaysOpenOnEdit="True" />
+                                    </Grid>
                                 </StackPanel>
                                 <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,12">
-                                    <TextBlock Text="Type" FontWeight="SemiBold" Margin="0,0,0,5" />
-                                    <TextBox Text="{Binding TaskEditDraft.Type, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Type" FontWeight="SemiBold" Margin="0,0,10,0" VerticalAlignment="Center" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding TaskTypeOptions}"
+                                                  Text="{Binding TaskEditDraft.Type, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  IsEditable="True"
+                                                  IsTextSearchEnabled="True"
+                                                  StaysOpenOnEdit="True" />
+                                    </Grid>
                                 </StackPanel>
                                 <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,0,0,12">
                                     <TextBlock Text="Task" FontWeight="SemiBold" Margin="0,0,0,5" />
@@ -872,8 +1113,8 @@
                 <Border Grid.RowSpan="3"
                         Background="#66000000"
                         Panel.ZIndex="5"
-                        Visibility="{Binding IsCheckinSettingsOpen, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Border Width="420"
+                        Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Border Width="620"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             Background="White"
@@ -884,19 +1125,56 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <TextBlock Text="Check-in Settings" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,14" />
+                            <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
 
-                            <CheckBox Grid.Row="1"
+                            <TextBlock Grid.Row="1" Text="General" FontWeight="SemiBold" Margin="0,0,0,10" />
+
+                            <Grid Grid.Row="2" Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="130" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="Apps Script URL" VerticalAlignment="Center" Margin="0,0,12,10" />
+                                <TextBox Grid.Column="1"
+                                         Text="{Binding GoogleAppsScriptUrl, UpdateSourceTrigger=PropertyChanged}"
+                                         Margin="0,0,0,10" />
+
+                                <TextBlock Grid.Row="1" Text="API Key" VerticalAlignment="Center" Margin="0,0,12,10" />
+                                <TextBox Grid.Row="1" Grid.Column="1"
+                                         Text="{Binding ApiKey, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="260"
+                                         HorizontalAlignment="Left"
+                                         Margin="0,0,0,10" />
+
+                                <TextBlock Grid.Row="2" Text="Log Days" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                <TextBox Grid.Row="2" Grid.Column="1"
+                                         Text="{Binding LogRetentionDays, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="70"
+                                         HorizontalAlignment="Left" />
+                            </Grid>
+
+                            <TextBlock Grid.Row="3" Text="Check-in Schedule" FontWeight="SemiBold" Margin="0,0,0,10" />
+
+                            <CheckBox Grid.Row="4"
                                       Content="Check all / uncheck all"
                                       IsThreeState="True"
                                       IsChecked="{Binding AllCheckinDaysEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                       Margin="0,0,0,12" />
 
-                            <ItemsControl Grid.Row="2" ItemsSource="{Binding CheckinSettingsDraft}">
+                            <ItemsControl Grid.Row="5" ItemsSource="{Binding CheckinSettingsDraft}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="0,0,0,8">
@@ -918,15 +1196,14 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-                                <Button Content="✓" ToolTip="Save" Command="{Binding SaveCheckinSettingsCommand}" Style="{StaticResource IconButtonStyle}" Margin="0,0,8,0" />
-                                <Button Content="X" ToolTip="Cancel" Command="{Binding CancelCheckinSettingsCommand}" Style="{StaticResource IconButtonStyle}" Background="#65758B" />
+                            <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+                                <Button Content="✓" ToolTip="Save" Command="{Binding SaveSettingsCommand}" Style="{StaticResource IconButtonStyle}" Margin="0,0,8,0" />
+                                <Button ToolTip="Cancel Settings" Command="{Binding CancelSettingsCommand}" Style="{StaticResource PngIconButtonStyle}">
+                                    <Image Source="Assets/Icons/cancel.png" Width="20" Height="20" SnapsToDevicePixels="True" />
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </Border>
                 </Border>
-            </Grid>
-        </TabItem>
-
-    </TabControl>
+    </Grid>
 </Window>

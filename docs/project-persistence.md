@@ -30,6 +30,10 @@ Durable ordered outbox for create, edit, complete, snooze, clear-snooze, and arc
 
 Stores last check-in, last alert date, and the enabled/HHmm schedule for each day. Defaults to every day at `1200`.
 
+### `data\watch-list.json`
+
+Stores unique local bookmarks using stable Task ID and the timestamp when each task was added. Display fields are resolved from `tasks.json`, and a successful Sync removes entries that no longer exist. Failed Sync attempts do not prune entries.
+
 ## Logs
 
 - `log\lifesync-info-yyyy-MM-dd.log`
@@ -42,6 +46,7 @@ Startup pruning removes matching log files older than `logRetentionDays`.
 - Apps Script URL and API key.
 - Log retention.
 - Task cache and mutation queue.
+- Watch List task IDs and date-added timestamps.
 - Check-in schedule and last check-in/alert dates.
 
 ## Must Not Persist
@@ -50,5 +55,6 @@ Startup pruning removes matching log files older than `logRetentionDays`.
 - Current selection.
 - Canceled drafts.
 - Current filters.
+- Current Tasks/Watch List/Daily Summary view.
 - Grid widths or sort direction.
 - Transient busy flags.

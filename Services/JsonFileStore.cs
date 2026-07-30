@@ -49,6 +49,24 @@ public sealed class JsonFileStore
         await JsonSerializer.SerializeAsync(stream, mutations, SerializerOptions);
     }
 
+    public async Task<List<WatchListEntry>> LoadWatchListAsync()
+    {
+        if (!File.Exists(AppPaths.WatchListPath))
+        {
+            return [];
+        }
+
+        await using var stream = File.OpenRead(AppPaths.WatchListPath);
+        return await JsonSerializer.DeserializeAsync<List<WatchListEntry>>(stream, SerializerOptions) ?? [];
+    }
+
+    public async Task SaveWatchListAsync(IEnumerable<WatchListEntry> entries)
+    {
+        Directory.CreateDirectory(AppPaths.DataDirectory);
+        await using var stream = File.Create(AppPaths.WatchListPath);
+        await JsonSerializer.SerializeAsync(stream, entries, SerializerOptions);
+    }
+
     public async Task<CheckinSettings> LoadCheckinSettingsAsync()
     {
         Directory.CreateDirectory(AppPaths.DataDirectory);

@@ -4,10 +4,10 @@
 
 1. `MainWindow` constructs `MainViewModel`.
 2. `InitializeAsync` loads config and prunes old logs.
-3. Cached tasks and pending mutations are loaded.
-4. Check-in settings are loaded or created.
-5. Filters and calculated task state are refreshed.
-6. The check-in timer starts.
+3. Cached tasks, pending mutations, Watch List entries, and check-in settings load concurrently.
+4. Cached tasks are calculated first and then published to the grid with one collection reset.
+5. Sorting, filtering, summaries, Watch List rows, and sync state rebuild against the complete cache.
+6. Tasks view opens in Normal mode and the check-in timer starts.
 7. No Google Sheet request runs automatically.
 
 ## Manual Task Sync Flow
@@ -18,6 +18,14 @@
 4. Stale revisions become conflicts.
 5. Current non-archived tasks are retrieved and merged by stable Task ID.
 6. Cache and mutation queue state are saved.
+7. The selected Normal/Priority mode is preserved while task filters reset.
+8. Watch entries missing from a successful Sheet response are removed; failed Sync attempts never prune them.
+
+## Settings Flow
+
+1. The gear opens drafts of the saved Google connection, log retention, and check-in schedule.
+2. Cancel restores saved values without writing files.
+3. Save validates check-in times, normalizes log retention, writes `config.json` and `checkin-settings.json`, and refreshes reminder state.
 
 ## Task Create And Edit Flow
 
@@ -36,15 +44,27 @@
 5. Cache and outbox save before the sidebar closes.
 6. Upload starts in the background.
 7. Failures remain Pending and stale revisions require conflict review.
+8. The task is removed from Watch List immediately.
+
+## Watch List Flow
+
+1. Add/Remove Watch List in task detail persists a stable Task ID and original date-added timestamp locally.
+2. The Watch List grid resolves Category, Type, Task, and Day Left from the current cached task.
+3. Open or double-click uses the normal selected-task sidebar without leaving Watch List view.
+4. Completion and archive remove the entry immediately.
 
 ## Daily Summary Flow
 
-1. Summary opens without changing grid filters.
+1. Daily Summary is selected from the same main-view switch as Tasks and Watch List without changing task filters.
 2. Unsnoozed expired tasks appear under Expired / Overdue.
 3. Unsnoozed warning-reached tasks appear under Warning.
-4. Open selects the task and opens normal task detail.
-5. Snooze actions update local state and queue before background upload.
-6. Date-only snooze values serialize as `yyyy-MM-dd`.
+4. Active snoozed tasks appear under Snoozed and remain available for opening, clearing, or extending their snooze.
+5. Alert-enabled tasks carry a visible Alert badge in every summary group.
+6. Open selects the task and opens normal task detail over Daily Summary.
+7. Closing task detail returns to Daily Summary.
+8. Quick snooze actions add days from an active snooze date, or from today for an unsnoozed task.
+9. Custom snooze sets an explicit date; all snooze actions update local state and queue before background upload.
+10. Date-only snooze values serialize as `yyyy-MM-dd`.
 
 ## Google Task Reminder Flow
 
