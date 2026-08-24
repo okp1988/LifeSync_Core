@@ -4,16 +4,18 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:models="clr-namespace:LifeSyncTaskClient.Models"
+        xmlns:controls="clr-namespace:LifeSyncTaskClient.Controls"
         xmlns:vm="clr-namespace:LifeSyncTaskClient.ViewModels"
         mc:Ignorable="d"
         Title="Life Sync Personal Tracker"
         Height="760"
         MinHeight="640"
-        Width="1220"
+        Width="980"
         MinWidth="980"
         Icon="Assets/AppIcon.ico"
         Background="#F6F7F9"
         Loaded="Window_Loaded"
+        SizeChanged="Window_SizeChanged"
         PreviewKeyDown="Window_PreviewKeyDown"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}">
     <Window.Resources>
@@ -166,6 +168,7 @@
         </Style>
 
         <Style x:Key="TaskRowStyle" TargetType="DataGridRow">
+            <Setter Property="DetailsVisibility" Value="{Binding IsExpanded, Converter={StaticResource BoolToVisibilityConverter}}" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Status}" Value="Expired">
                     <Setter Property="Background" Value="#FDECEC" />
@@ -175,6 +178,9 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Completed">
                     <Setter Property="Background" Value="#EAF7EF" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsEffectivelyPaused}" Value="True">
+                    <Setter Property="Background" Value="#EEF1F4" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -191,10 +197,41 @@
             </Style.Triggers>
         </Style>
 
+        <Style x:Key="TasksGridCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource TaskGridCellStyle}">
+            <Setter Property="Padding" Value="4,0" />
+        </Style>
+
+        <Style x:Key="TasksGridColumnHeaderStyle" TargetType="DataGridColumnHeader">
+            <Setter Property="Padding" Value="8,0" />
+        </Style>
+
         <Style x:Key="TaskGridTextStyle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
             <Setter Property="Margin" Value="6,0" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+
+        <Style x:Key="PriorityDayCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource TaskGridCellStyle}">
+            <Setter Property="Background" Value="#EEF4FA" />
+            <Setter Property="Foreground" Value="#18202A" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Level}" Value="2">
+                    <Setter Property="Background" Value="#D6E4F2" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Level}" Value="3">
+                    <Setter Property="Background" Value="#AFC9E1" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Level}" Value="4">
+                    <Setter Property="Background" Value="#709DC5" />
+                    <Setter Property="Foreground" Value="White" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Level}" Value="5">
+                    <Setter Property="Background" Value="#315F8C" />
+                    <Setter Property="Foreground" Value="White" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <Style x:Key="RemarkPreviewTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
@@ -205,6 +242,118 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
+        <DataTemplate x:Key="TaskStateTemplate">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Border Width="17" Height="17" CornerRadius="9" BorderBrush="#111111" BorderThickness="1" Margin="0,0,7,0"
+                        ToolTip="{Binding Level, StringFormat=Priority level {0}}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="White" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Level}" Value="2"><Setter Property="Background" Value="#FFD9D9" /></DataTrigger>
+                                <DataTrigger Binding="{Binding Level}" Value="3"><Setter Property="Background" Value="#FFAAAA" /></DataTrigger>
+                                <DataTrigger Binding="{Binding Level}" Value="4"><Setter Property="Background" Value="#F26767" /></DataTrigger>
+                                <DataTrigger Binding="{Binding Level}" Value="5"><Setter Property="Background" Value="#C62828" /></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="{Binding Level}" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="Foreground" Value="#111111" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Level}" Value="5"><Setter Property="Foreground" Value="White" /></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Border>
+                <Border Width="38" Height="19" CornerRadius="3" BorderThickness="1" Margin="0,0,7,0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="#F1F3F5" />
+                            <Setter Property="BorderBrush" Value="#98A2B3" />
+                            <Setter Property="ToolTip" Value="Audit history disabled" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding History}" Value="True">
+                                    <Setter Property="Background" Value="#6D28A8" />
+                                    <Setter Property="BorderBrush" Value="#491773" />
+                                    <Setter Property="ToolTip" Value="Audit history enabled" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock Text="&#xE81C;" FontFamily="Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                    <Setter Property="Foreground" Value="#667085" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding History}" Value="True"><Setter Property="Foreground" Value="White" /></DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Text="{Binding MonthlyHistoryDisplay}" FontSize="10" FontWeight="SemiBold" Margin="3,0,0,0" VerticalAlignment="Center" Foreground="White" />
+                    </StackPanel>
+                </Border>
+                <Border Width="19" Height="19" CornerRadius="3" BorderThickness="1" Margin="0,0,7,0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="#F1F3F5" />
+                            <Setter Property="BorderBrush" Value="#98A2B3" />
+                            <Setter Property="ToolTip" Value="Alert disabled" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Alert}" Value="True">
+                                    <Setter Property="Background" Value="#16803C" />
+                                    <Setter Property="BorderBrush" Value="#0B5726" />
+                                    <Setter Property="ToolTip" Value="Alert enabled" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="&#xE7ED;" FontFamily="Segoe MDL2 Assets" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="Foreground" Value="#667085" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Alert}" Value="True"><Setter Property="Foreground" Value="White" /></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Border>
+                <TextBlock Text="&#xE895;" FontFamily="Segoe MDL2 Assets" FontSize="15" Margin="0,0,7,0" ToolTip="{Binding SyncState}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                            <Setter Property="Foreground" Value="#1F7A46" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SyncState}" Value="Pending"><Setter Property="Foreground" Value="#B7791F" /></DataTrigger>
+                                <DataTrigger Binding="{Binding SyncState}" Value="Conflict"><Setter Property="Foreground" Value="#B42318" /></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Border Width="19" Height="19" CornerRadius="3" Background="#596579" BorderBrush="#344054" BorderThickness="1" Margin="0,0,7,0"
+                        Visibility="{Binding IsEffectivelyPaused, Converter={StaticResource BoolToVisibilityConverter}}"
+                        ToolTip="{Binding PauseDisplay}">
+                    <TextBlock Text="&#xE769;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <TextBlock Text="&#x25CF;" FontSize="14" ToolTip="{Binding Status}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                            <Setter Property="Foreground" Value="#1F7A46" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Status}" Value="Warning"><Setter Property="Foreground" Value="#B7791F" /></DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="Expired"><Setter Property="Foreground" Value="#B42318" /></DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="Not Started"><Setter Property="Foreground" Value="#65758B" /></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
 
         <Style x:Key="NotesPreviewTextStyle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
@@ -376,13 +525,13 @@
                                             </Style>
                                         </Button.Style>
                                     </Button>
-                                    <Button Content="{Binding WatchListDisplay}" Command="{Binding ShowWatchListViewCommand}" Padding="14,5">
+                                    <Button Content="{Binding PriorityViewDisplay}" Command="{Binding ShowPriorityViewCommand}" Padding="14,5">
                                         <Button.Style>
                                             <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                                 <Setter Property="Background" Value="Transparent" />
                                                 <Setter Property="Foreground" Value="#546171" />
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsWatchListView}" Value="True">
+                                                    <DataTrigger Binding="{Binding IsPriorityView}" Value="True">
                                                         <Setter Property="Background" Value="White" />
                                                         <Setter Property="Foreground" Value="#18202A" />
                                                     </DataTrigger>
@@ -397,6 +546,20 @@
                                                 <Setter Property="Foreground" Value="#546171" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsDailySummaryView}" Value="True">
+                                                        <Setter Property="Background" Value="White" />
+                                                        <Setter Property="Foreground" Value="#18202A" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <Button Content="{Binding HistoryViewDisplay}" Command="{Binding ShowHistoryViewCommand}" Padding="14,5">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="Foreground" Value="#546171" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsHistoryView}" Value="True">
                                                         <Setter Property="Background" Value="White" />
                                                         <Setter Property="Foreground" Value="#18202A" />
                                                     </DataTrigger>
@@ -455,6 +618,10 @@
                 Margin="0,0,0,14"
                 Visibility="{Binding IsTasksView, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="190" />
                             <ColumnDefinition Width="10" />
@@ -465,12 +632,24 @@
                             <ColumnDefinition Width="145" />
                             <ColumnDefinition Width="10" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="10" />
-                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0">
+                        <StackPanel Grid.Row="0" Grid.ColumnSpan="10" Orientation="Horizontal" Margin="0,0,0,10">
+                            <TextBlock Text="View" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox ItemsSource="{Binding TaskFilters}" DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedSavedFilter, Mode=TwoWay}" Width="190" />
+                            <Button Content="Manage Filters" Command="{Binding OpenFilterManagerCommand}" Margin="8,0,0,0" Padding="10,5" Background="#65758B" />
+                            <Button Content="{Binding PausedButtonDisplay}" Command="{Binding OpenPausedManagerCommand}" Margin="8,0,0,0" Padding="10,5" Background="#65758B" />
+                            <Button Content="{Binding ExpandCollapseAllGlyph}"
+                                    Command="{Binding ToggleAllTaskDetailsCommand}"
+                                    ToolTip="{Binding ExpandCollapseAllToolTip}"
+                                    AutomationProperties.Name="{Binding ExpandCollapseAllToolTip}"
+                                    Style="{StaticResource IconButtonStyle}"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    Margin="8,0,0,0" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="1" Grid.Column="0">
                             <TextBlock Text="Category" Margin="0,0,0,5" FontWeight="SemiBold" />
                             <ComboBox ItemsSource="{Binding Categories}"
                                       SelectedValue="{Binding CategoryFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -478,7 +657,7 @@
                                       HorizontalAlignment="Left" />
                         </StackPanel>
 
-                        <StackPanel Grid.Column="2">
+                        <StackPanel Grid.Row="1" Grid.Column="2">
                             <TextBlock Text="Type" Margin="0,0,0,5" FontWeight="SemiBold" />
                             <ComboBox ItemsSource="{Binding Types}"
                                       SelectedValue="{Binding TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -486,7 +665,7 @@
                                       HorizontalAlignment="Left" />
                         </StackPanel>
 
-                        <StackPanel Grid.Column="4">
+                        <StackPanel Grid.Row="1" Grid.Column="4">
                             <TextBlock Text="Search Task" Margin="0,0,0,5" FontWeight="SemiBold" />
                             <TextBox Text="{Binding TaskSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      Width="160"
@@ -494,7 +673,7 @@
                                      ToolTip="Filter by task name" />
                         </StackPanel>
 
-                        <StackPanel Grid.Column="6">
+                        <StackPanel Grid.Row="1" Grid.Column="6">
                             <TextBlock Text="Status" Margin="0,0,0,5" FontWeight="SemiBold" />
                             <ComboBox ItemsSource="{Binding Statuses}"
                                       SelectedItem="{Binding StatusFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -502,21 +681,7 @@
                                       HorizontalAlignment="Left" />
                         </StackPanel>
 
-                        <StackPanel Grid.Column="8">
-                            <TextBlock Text="Mode" Margin="0,0,0,5" FontWeight="SemiBold" />
-                            <ListBox ItemsSource="{Binding SortModes}"
-                                     SelectedItem="{Binding SelectedSortMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     Style="{StaticResource SegmentedListBoxStyle}"
-                                     ItemContainerStyle="{StaticResource SegmentedListBoxItemStyle}">
-                                <ListBox.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal" />
-                                    </ItemsPanelTemplate>
-                                </ListBox.ItemsPanel>
-                            </ListBox>
-                        </StackPanel>
-
-                        <Button Grid.Column="10"
+                        <Button Grid.Row="1" Grid.Column="8"
                                 ToolTip="Clear Filters"
                                 Command="{Binding ClearFiltersCommand}"
                                 VerticalAlignment="Bottom"
@@ -532,6 +697,7 @@
                       SelectedItem="{Binding SelectedTask, Mode=TwoWay}"
                       PreviewMouseLeftButtonDown="TasksGrid_PreviewMouseLeftButtonDown"
                       MouseDoubleClick="TasksGrid_MouseDoubleClick"
+                      LoadingRow="TasksGrid_LoadingRow"
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"
                       CanUserDeleteRows="False"
@@ -551,45 +717,175 @@
                       BorderThickness="1"
                       RowHeaderWidth="0"
                       ColumnHeaderHeight="30"
+                      ColumnHeaderStyle="{StaticResource TasksGridColumnHeaderStyle}"
                       RowHeight="28"
                       HorizontalGridLinesBrush="#E5E9F0"
-                      CellStyle="{StaticResource TaskGridCellStyle}"
+                      CellStyle="{StaticResource TasksGridCellStyle}"
                       RowStyle="{StaticResource TaskRowStyle}"
                       Visibility="{Binding IsTasksView, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGrid.RowDetailsTemplate>
+                            <DataTemplate>
+                                <Border Background="#F8FAFC" BorderBrush="#D9DEE7" BorderThickness="0,1,0,1" Padding="18,12" Margin="0,0,0,2">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="24" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Visibility="{Binding HasMinorTasks, Converter={StaticResource BoolToVisibilityConverter}}">
+                                            <TextBlock Text="Minor Tasks" FontWeight="SemiBold" Margin="0,0,0,7" />
+                                            <ItemsControl ItemsSource="{Binding ActiveMinorTasks}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Grid Margin="0,2">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Grid.Column="1" Text="{Binding CompactStatusDisplay}" Foreground="#65758B" Margin="12,0,0,0">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                                        <Setter Property="Foreground" Value="#65758B" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsOverdue}" Value="True"><Setter Property="Foreground" Value="#A05A00" /><Setter Property="FontWeight" Value="SemiBold" /></DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Visibility="{Binding HasLinkedFollowers, Converter={StaticResource BoolToVisibilityConverter}}">
+                                            <TextBlock Text="Linked Tasks" FontWeight="SemiBold" Margin="0,0,0,7" />
+                                            <ItemsControl ItemsSource="{Binding LinkedFollowers}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Grid Margin="0,2">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Grid.Column="1" Text="{Binding LinkedStateDisplay}" Foreground="#65758B" Margin="12,0,0,0" />
+                                                            <Button Grid.Column="2" Content="Edit" Command="{Binding DataContext.EditLinkedTaskCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" Padding="8,2" Margin="8,0,0,0" Background="#65758B" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </DataGrid.RowDetailsTemplate>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="105" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
-                            <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="110" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
-                            <DataGridTextColumn Header="Task" Binding="{Binding Task}" Width="220" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
-                            <DataGridTemplateColumn Header="Expired Date" Width="175" CanUserSort="False">
+                            <DataGridTemplateColumn Header="State" Width="180" CellTemplate="{StaticResource TaskStateTemplate}" CanUserSort="False" />
+                            <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="100" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                            <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="105" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                            <DataGridTemplateColumn x:Name="TaskNameColumn" Header="Task" Width="205" MinWidth="205" CanUserSort="False">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <Grid Margin="6,0">
                                             <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{Binding ExpiredDateDisplay}" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="1" Text="{Binding ExpiredDayDisplay}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="#546171" />
+                                            <ToggleButton IsChecked="{Binding IsExpanded, Mode=TwoWay}"
+                                                          Click="TaskExpander_Click"
+                                                          Visibility="{Binding HasExpandableDetails, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                          Width="18" Height="18" Padding="0" Margin="0,0,4,0"
+                                                          Background="Transparent" BorderThickness="0" Foreground="#546171"
+                                                          ToolTip="Show minor and linked tasks">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton">
+                                                        <Setter Property="Content" Value="&#x25B8;" />
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="&#x25BE;" /></Trigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                            </ToggleButton>
+                                            <TextBlock Grid.Column="1" Text="{Binding HierarchyTaskDisplay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding HierarchyToolTip}" />
+                                            <Border Grid.Column="2" Background="#D97706" CornerRadius="8" MinWidth="17" Height="17" Margin="6,0,0,0"
+                                                    Visibility="{Binding HasOverdueMinors, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                    ToolTip="Overdue minor tasks">
+                                                <TextBlock Text="{Binding OverdueMinorDisplay}" Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
                                         </Grid>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Warning Date" Binding="{Binding WarningDateDisplay}" Width="115" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
-                            <DataGridTemplateColumn Header="Alert Date" Width="175" CanUserSort="False">
+                            <DataGridTemplateColumn Header="Next Date" Width="210" CanUserSort="False">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <Grid Margin="6,0">
                                             <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{Binding AlertDateDisplay}" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="1" Text="{Binding AlertDayDisplay}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="#546171" />
+                                            <TextBlock FontSize="14" Width="18" TextAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Setter Property="Text" Value="-" />
+                                                        <Setter Property="Foreground" Value="#65758B" />
+                                                        <Setter Property="FontFamily" Value="Segoe UI Symbol" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding NextDateKind}" Value="Warning">
+                                                                <Setter Property="Text" Value="&#x26A0;" />
+                                                                <Setter Property="Foreground" Value="#B7791F" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding NextDateKind}" Value="Expired">
+                                                                <Setter Property="Text" Value="&#x2691;" />
+                                                                <Setter Property="Foreground" Value="#B42318" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding NextDateKind}" Value="Snooze">
+                                                                <Setter Property="Text" Value="&#x25F7;" />
+                                                                <Setter Property="Foreground" Value="#6D28A8" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding NextDateKind}" Value="Alert">
+                                                                <Setter Property="Text" Value="&#xE7ED;" />
+                                                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                                                                <Setter Property="Foreground" Value="#2457A6" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Grid.Column="1" Text="{Binding NextDateDisplay}" Margin="6,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Left" />
+                                            <TextBlock Grid.Column="2" Text="{Binding NextDateMetricsDisplay}" Margin="12,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Right" TextAlignment="Right" Foreground="#546171" />
                                         </Grid>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="Last Executed Date" Width="185" CanUserSort="False">
+                            <DataGridTemplateColumn Header="Cycle" Width="126" CellStyle="{StaticResource TaskGridCellStyle}" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="6,0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <controls:CycleTimelineControl Blocks="{Binding CycleTimelineBlocks}"
+                                                                           Width="110"
+                                                                           Height="15"
+                                                                           SnapsToDevicePixels="True"
+                                                                           IsHitTestVisible="False" />
+                                            <TextBlock Text="-" Foreground="#65758B" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasCycleTimeline}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn x:Name="LastExecutedDateColumn" Header="Last Executed Date" Width="185" CanUserSort="False">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <Grid Margin="6,0">
@@ -603,8 +899,8 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Remark" Binding="{Binding RemarkPreview}" Width="*" MinWidth="180" ElementStyle="{StaticResource RemarkPreviewTextStyle}" CanUserSort="False" />
-                            <DataGridTemplateColumn Header="State" Width="92" CanUserSort="False">
+                            <DataGridTextColumn x:Name="RemarkColumn" Header="Remark" Binding="{Binding RemarkPreview}" Width="*" MinWidth="180" ElementStyle="{StaticResource RemarkPreviewTextStyle}" CanUserSort="False" />
+                            <DataGridTemplateColumn Header="State" Width="92" CanUserSort="False" Visibility="Collapsed">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -662,48 +958,98 @@
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <Grid Visibility="{Binding IsWatchListView, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Grid Visibility="{Binding IsPriorityView, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Watch List" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <Button Grid.Column="1" Content="Open" Command="{Binding OpenSelectedWatchTaskCommand}" />
+                            <StackPanel>
+                                <TextBlock Text="Priority" FontSize="18" FontWeight="SemiBold" />
+                                <TextBlock Text="Expired and warning tasks" Margin="0,4,0,0" Foreground="#546171" />
+                            </StackPanel>
                         </Grid>
-                        <DataGrid x:Name="WatchListGrid"
-                                  Grid.Row="1"
-                                  ItemsSource="{Binding WatchListItems}"
-                                  SelectedItem="{Binding SelectedWatchListItem, Mode=TwoWay}"
-                                  MouseDoubleClick="WatchListGrid_MouseDoubleClick"
-                                  AutoGenerateColumns="False"
-                                  CanUserAddRows="False"
-                                  CanUserDeleteRows="False"
-                                  CanUserSortColumns="False"
-                                  IsReadOnly="True"
-                                  SelectionMode="Single"
-                                  SelectionUnit="FullRow"
-                                  GridLinesVisibility="Horizontal"
-                                  HeadersVisibility="Column"
-                                  Background="White"
-                                  BorderBrush="#D9DEE7"
-                                  BorderThickness="1"
-                                  RowHeaderWidth="0"
-                                  ColumnHeaderHeight="30"
-                                  RowHeight="28"
-                                  HorizontalGridLinesBrush="#E5E9F0">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="180" CanUserSort="False" />
-                                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="180" CanUserSort="False" />
-                                <DataGridTextColumn Header="Task" Binding="{Binding Task}" Width="*" MinWidth="280" CanUserSort="False" />
-                                <DataGridTextColumn Header="Day Left" Binding="{Binding DayLeft}" Width="100" CanUserSort="False" />
-                                <DataGridTextColumn Header="Date Added" Binding="{Binding DateAdded, StringFormat={}{0:dd MMM yyyy}}" Width="130" CanUserSort="False" />
-                            </DataGrid.Columns>
-                        </DataGrid>
+                        <Grid Grid.Row="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid Grid.Column="0">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                <TextBlock Text="Expired" FontWeight="SemiBold" Foreground="#B42318" Margin="0,0,0,7" />
+                                <DataGrid Grid.Row="1" ItemsSource="{Binding ExpiredPriorityItems}" SelectedItem="{Binding SelectedExpiredPriorityTask, Mode=TwoWay}"
+                                          MouseDoubleClick="PriorityGrid_MouseDoubleClick"
+                                          AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="False"
+                                          IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
+                                          HeadersVisibility="Column" RowHeaderWidth="0" RowHeight="28" CellStyle="{StaticResource TaskGridCellStyle}">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="95" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="95" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Task" Binding="{Binding Task}" Width="*" MinWidth="120" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Due Date" Binding="{Binding ExpiredDateDisplay}" Width="105" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Days" Binding="{Binding DayLeft}" Width="70" CellStyle="{StaticResource PriorityDayCellStyle}" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                                <TextBlock Grid.Row="1" Text="No expired tasks" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#65758B" IsHitTestVisible="False">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding HasExpiredPriorityItems}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                            <Grid Grid.Column="2">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                <TextBlock Text="Warning" FontWeight="SemiBold" Foreground="#B7791F" Margin="0,0,0,7" />
+                                <DataGrid Grid.Row="1" ItemsSource="{Binding WarningPriorityItems}" SelectedItem="{Binding SelectedWarningPriorityTask, Mode=TwoWay}"
+                                          MouseDoubleClick="PriorityGrid_MouseDoubleClick"
+                                          AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="False"
+                                          IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
+                                          HeadersVisibility="Column" RowHeaderWidth="0" RowHeight="28" CellStyle="{StaticResource TaskGridCellStyle}">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="95" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="95" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Task" Binding="{Binding Task}" Width="*" MinWidth="120" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Warning Date" Binding="{Binding WarningDateDisplay}" Width="110" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Days" Binding="{Binding DayLeft}" Width="70" CellStyle="{StaticResource PriorityDayCellStyle}" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                                <TextBlock Grid.Row="1" Text="No warning tasks" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#65758B" IsHitTestVisible="False">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding HasWarningPriorityItems}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Grid>
+                        <Border Grid.Row="2" Margin="0,12,0,0" Padding="12" MinHeight="180" Background="#F7F9FC" BorderBrush="#D9DEE7" BorderThickness="1"
+                                Visibility="{Binding IsPriorityDetailOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding SelectedTaskPath}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding SelectedTaskDateDisplay}" Margin="0,4,0,0" Foreground="#546171" />
+                                    <TextBlock Text="{Binding SelectedTask.Level, StringFormat=Level {0}}" Margin="0,4,0,0" Foreground="#546171" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Stretch">
+                                    <TextBlock Text="Remark" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                    <TextBox Text="{Binding SelectedRemarkDraft, UpdateSourceTrigger=PropertyChanged}"
+                                             Width="320"
+                                             MinHeight="110"
+                                             AcceptsReturn="True"
+                                             TextWrapping="Wrap"
+                                             VerticalContentAlignment="Top"
+                                             VerticalScrollBarVisibility="Auto" />
+                                </StackPanel>
+                                <DatePicker Grid.Column="2" SelectedDate="{Binding CompletionDate}" Width="145" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                <Button Grid.Column="3" Content="Mark Complete" Command="{Binding MarkCompleteCommand}" Margin="0,0,8,0" Background="#8A3B2D" VerticalAlignment="Center" />
+                                <Button Grid.Column="4" Content="Close" Command="{Binding ClosePriorityDetailCommand}" Background="#65758B" VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
                     </Grid>
 
                     <Border VerticalAlignment="Stretch"
@@ -841,6 +1187,106 @@
                         </Grid>
                     </Border>
 
+                    <Border VerticalAlignment="Stretch"
+                            Background="White"
+                            BorderBrush="#D9DEE7"
+                            BorderThickness="1"
+                            Padding="16"
+                            Visibility="{Binding IsHistoryView, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Completion History" FontSize="18" FontWeight="SemiBold" />
+                                    <TextBlock Text="Monthly completion details. Pending completions can be undone during the one-hour delay."
+                                               Margin="0,4,0,0"
+                                               Foreground="#546171" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="‹" Command="{Binding PreviousHistoryMonthCommand}" Width="34" Height="30" Padding="0" FontSize="18" />
+                                    <TextBlock Text="{Binding HistoryMonthDisplay}" Width="145" TextAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                    <Button Content="›" Command="{Binding NextHistoryMonthCommand}" Width="34" Height="30" Padding="0" FontSize="18" />
+                                </StackPanel>
+                            </Grid>
+
+                            <DataGrid Grid.Row="1"
+                                      ItemsSource="{Binding CompletionHistoryItems}"
+                                      AutoGenerateColumns="False"
+                                      CanUserAddRows="False"
+                                      CanUserDeleteRows="False"
+                                      CanUserSortColumns="False"
+                                      IsReadOnly="True"
+                                      SelectionMode="Single"
+                                      SelectionUnit="FullRow"
+                                      EnableRowVirtualization="True"
+                                      VirtualizingPanel.IsVirtualizing="True"
+                                      VirtualizingPanel.VirtualizationMode="Recycling"
+                                      GridLinesVisibility="Horizontal"
+                                      HeadersVisibility="Column"
+                                      Background="White"
+                                      BorderBrush="#D9DEE7"
+                                      BorderThickness="1"
+                                      RowHeaderWidth="0"
+                                      ColumnHeaderHeight="30"
+                                      RowHeight="34"
+                                      HorizontalGridLinesBrush="#E5E9F0"
+                                      CellStyle="{StaticResource TaskGridCellStyle}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Completed Date" Binding="{Binding CompletedDateDisplay}" Width="145" CanUserSort="False">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
+                                                <Setter Property="TextAlignment" Value="Right" />
+                                            </Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="160" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                                    <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="160" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                                    <DataGridTextColumn Header="Task" Binding="{Binding Task}" Width="*" MinWidth="240" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                                    <DataGridTextColumn Header="Remark" Binding="{Binding Remark}" Width="240" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                                    <DataGridTextColumn Header="Minor Tasks" Binding="{Binding MinorCompletionSummary}" Width="220" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                                    <DataGridTextColumn Header="Status" Binding="{Binding StateDisplay}" Width="120" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                                    <DataGridTemplateColumn Header="Action" Width="90" CanUserSort="False">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="Undo"
+                                                        Command="{Binding DataContext.UndoCompletionCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                        CommandParameter="{Binding}"
+                                                        Padding="10,3"
+                                                        HorizontalAlignment="Center"
+                                                        Visibility="{Binding CanUndo, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock Grid.Row="1"
+                                       Text="No completions in this month."
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="#65758B"
+                                       IsHitTestVisible="False">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasCompletionHistoryItems}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </Border>
+
                     <Border Width="585"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Stretch"
@@ -891,6 +1337,7 @@
                                 <StackPanel>
                                     <TextBlock Text="Selected Task" FontSize="18" FontWeight="SemiBold" />
                                     <TextBlock Text="{Binding SelectedTaskPath}" Margin="0,4,18,0" Foreground="#27313D" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding SelectedTask.Level, StringFormat=Priority Level {0}}" Margin="0,4,18,0" Foreground="#546171" />
                                     <StackPanel Orientation="Horizontal" Margin="0,4,18,0">
                                         <TextBlock Text="{Binding SelectedTaskDateDisplay}" Foreground="#546171" />
                                         <TextBlock Text="{Binding SelectedTaskDayLeftDisplay}" Margin="6,0,0,0" Style="{StaticResource SidebarDayLeftStyle}" />
@@ -909,6 +1356,7 @@
 
                             <Grid Grid.Row="1" Margin="0,0,0,18">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
@@ -938,30 +1386,61 @@
                                         Background="#65758B" />
 
                                 <Button Grid.Column="3"
-                                        Content="Archive"
-                                        Command="{Binding ArchiveTaskCommand}"
+                                        Content="Pause"
+                                        Command="{Binding PauseSelectedTaskCommand}"
                                         Margin="8,22,0,0"
                                         VerticalAlignment="Top"
-                                        Background="#8A3B2D" />
+                                        Background="#B7791F" />
 
-                                <Button Grid.Column="4"
-                                        Content="{Binding WatchListActionDisplay}"
-                                        Command="{Binding ToggleSelectedTaskWatchCommand}"
-                                        Margin="8,22,0,0"
-                                        HorizontalAlignment="Left"
-                                        VerticalAlignment="Top"
-                                        Background="#2F6F9F" />
                             </Grid>
 
-                            <StackPanel Grid.Row="2">
-                                <TextBlock Text="Selected Remark" FontWeight="SemiBold" Margin="0,0,0,6" />
-                                <TextBox Text="{Binding SelectedRemarkDraft, UpdateSourceTrigger=PropertyChanged}"
-                                 AcceptsReturn="True"
-                                 TextWrapping="Wrap"
-                                 MinHeight="220"
-                                 VerticalContentAlignment="Top"
-                                 VerticalScrollBarVisibility="Auto" />
-                            </StackPanel>
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
+                                <StackPanel>
+                                    <TextBlock Text="Selected Remark" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                    <TextBox Text="{Binding SelectedRemarkDraft, UpdateSourceTrigger=PropertyChanged}"
+                                             AcceptsReturn="True"
+                                             TextWrapping="Wrap"
+                                             MinHeight="180"
+                                             VerticalContentAlignment="Top"
+                                             VerticalScrollBarVisibility="Auto" />
+
+                                    <Border BorderBrush="#D9DEE7" BorderThickness="1" Padding="10" Margin="0,14,0,0"
+                                            Visibility="{Binding SelectedTask.HasMinorTasks, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <StackPanel>
+                                            <Grid Margin="0,0,0,7">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="125" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="Minor Tasks — Check To Complete" FontWeight="SemiBold" />
+                                                <TextBlock Grid.Column="1" Text="Complete Date" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                            </Grid>
+                                            <ItemsControl ItemsSource="{Binding MinorCompletionDrafts}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Grid Margin="0,4">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="24" />
+                                                                <ColumnDefinition Width="120" />
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="125" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto" />
+                                                                <RowDefinition Height="Auto" />
+                                                            </Grid.RowDefinitions>
+                                                            <CheckBox Grid.RowSpan="2" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" ToolTip="Include this minor task in the completion" />
+                                                            <TextBlock Grid.Column="1" Text="{Binding MinorTask.Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding MinorTask.Name}" />
+                                                            <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding MinorTask.CompactStatusDisplay}" VerticalAlignment="Center" Foreground="#65758B" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding MinorTask.CompactStatusDisplay}" />
+                                                            <DatePicker Grid.RowSpan="2" Grid.Column="3" SelectedDate="{Binding CompletionDate}" IsEnabled="{Binding IsSelected}" Width="120" HorizontalAlignment="Right" ToolTip="Completion date for this minor task" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </ScrollViewer>
                         </Grid>
                     </Border>
                 </Grid>
@@ -970,7 +1449,8 @@
                         Background="#66000000"
                         Panel.ZIndex="7"
                         Visibility="{Binding IsTaskEditorOpen, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Border Width="560"
+                    <Border Width="760"
+                            MaxHeight="700"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             Background="White"
@@ -980,19 +1460,23 @@
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <TextBlock Text="{Binding TaskEditorTitle}" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
 
-                            <Grid Grid.Row="1">
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <Grid Margin="0,0,10,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="18" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
@@ -1050,21 +1534,201 @@
                                     </StackPanel>
                                 </StackPanel>
 
-                                <StackPanel Grid.Row="3" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,2,0,0">
+                                <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,2,0,0">
+                                    <TextBlock Text="Priority Level" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                    <ComboBox ItemsSource="{Binding TaskLevels}"
+                                              SelectedItem="{Binding TaskEditDraft.Level, Mode=TwoWay}"
+                                              Width="90"
+                                              HorizontalAlignment="Left" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="4" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,14,0,0">
                                     <CheckBox Content="Create Google Task alerts" IsChecked="{Binding TaskEditDraft.Alert}" Margin="0,0,24,0" />
                                     <CheckBox Content="Keep Audit history" IsChecked="{Binding TaskEditDraft.History}" />
                                 </StackPanel>
-                                <TextBlock Grid.Row="4" Grid.ColumnSpan="3"
-                                           Text="Dates begin after the first completion."
+                                <Grid Grid.Row="5" Grid.ColumnSpan="3" Margin="0,14,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Main Task / Unlocked By" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                    <TextBox Grid.Column="1" Text="{Binding MainTaskSearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Search main task" />
+                                    <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"
+                                              ItemsSource="{Binding LinkSourceOptions}"
+                                              DisplayMemberPath="FullPath"
+                                              SelectedValuePath="TaskId"
+                                              SelectedValue="{Binding TaskEditDraft.PredecessorTaskId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              HorizontalAlignment="Stretch"
+                                              Width="Auto"
+                                              ToolTip="Optional. Completing the selected main task unlocks this task." />
+                                    <Button Grid.Row="1" Grid.Column="2" Content="Clear Main Task" Command="{Binding ClearTaskLinkCommand}" Margin="8,6,0,0" Background="#65758B" Padding="10,6" />
+                                </Grid>
+
+                                <Border Grid.Row="6" Grid.ColumnSpan="3" BorderBrush="#D9DEE7" BorderThickness="1" Margin="0,14,0,0" Padding="10">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <TextBlock Text="Minor Tasks" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            <Button Grid.Column="1" Content="+ Add Minor" Command="{Binding AddMinorTaskCommand}" Padding="10,5" />
+                                        </Grid>
+                                        <ScrollViewer Grid.Row="1" MaxHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,0" Padding="0,0,10,0">
+                                            <ItemsControl ItemsSource="{Binding TaskEditDraft.MinorTasks}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Grid Margin="0,3">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="8" />
+                                                                <ColumnDefinition Width="70" />
+                                                                <ColumnDefinition Width="8" />
+                                                                <ColumnDefinition Width="100" />
+                                                                <ColumnDefinition Width="8" />
+                                                                <ColumnDefinition Width="145" />
+                                                                <ColumnDefinition Width="4" />
+                                                                <ColumnDefinition Width="28" />
+                                                                <ColumnDefinition Width="8" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" ToolTip="Minor task name" />
+                                                            <TextBox Grid.Column="2" Text="{Binding IntervalValue, UpdateSourceTrigger=PropertyChanged}" ToolTip="Optional interval" />
+                                                            <ComboBox Grid.Column="4" ItemsSource="{Binding DataContext.TaskCycleUnits, RelativeSource={RelativeSource AncestorType=Window}}" SelectedItem="{Binding IntervalUnit}" Width="100" ToolTip="Interval unit" />
+                                                            <DatePicker Grid.Column="6" SelectedDate="{Binding LatestCompletionDate}" Width="145" ToolTip="Optional last completed date" />
+                                                            <Button Grid.Column="8" Content="×" ToolTip="Clear last completed date" Command="{Binding DataContext.ClearMinorTaskDateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" Padding="0" Width="28" Background="#65758B" />
+                                                            <Button Grid.Column="10" Content="Remove" Command="{Binding DataContext.RemoveMinorTaskCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" Padding="9,5" Margin="0,0,4,0" Background="#8A3B2D" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Grid.Row="7" Grid.ColumnSpan="3"
+                                           Text="Dates begin after the first completion. Linked and minor settings are managed by LifeSync."
                                            Foreground="#546171"
                                            Margin="0,10,0,0" />
                             </Grid>
+                            </ScrollViewer>
 
                             <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
                                 <Button Content="Save" Command="{Binding SaveTaskCommand}" Margin="0,0,8,0" />
                                 <Button Content="Cancel" Command="{Binding CancelTaskEditCommand}" Background="#65758B" />
                             </StackPanel>
                         </Grid>
+                    </Border>
+                </Border>
+
+                <Border Grid.RowSpan="3" Background="#66000000" Panel.ZIndex="12"
+                        Visibility="{Binding IsFilterManagerOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Border Width="940" MaxHeight="650" HorizontalAlignment="Center" VerticalAlignment="Center" Background="White" BorderBrush="#C8CED8" BorderThickness="1" Padding="18">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock Text="Manage Filters" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,14" />
+                            <Grid Grid.Row="1">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="220" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <ListBox ItemsSource="{Binding FilterManagerDrafts}" SelectedItem="{Binding ManagedFilter}" DisplayMemberPath="DisplayName" MinHeight="360" />
+                                <Grid Grid.Column="2">
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Filter Name" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                            <TextBox Text="{Binding ManagedFilter.Name, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEditManagedFilter}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Set Favourite" Command="{Binding SetFavouriteFilterCommand}" Margin="8,0,0,0" Padding="10,5" VerticalAlignment="Bottom" />
+                                    </Grid>
+                                    <StackPanel Grid.Row="1" Margin="0,8,0,8">
+                                        <TextBlock Text="Search Task" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <TextBox Text="{Binding FilterTaskSearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Search by category, type, or task" />
+                                    </StackPanel>
+                                    <DataGrid Grid.Row="2" ItemsSource="{Binding FilterTaskSelectionItems}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="False" RowHeaderWidth="0" HeadersVisibility="Column">
+                                        <DataGrid.Columns>
+                                            <DataGridTemplateColumn Header="Show" Width="55">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsEnabled}" HorizontalAlignment="Center" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Header="Level" Binding="{Binding Task.Level}" Width="45" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Category" Binding="{Binding Task.Category}" Width="82" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Type" Binding="{Binding Task.Type}" Width="82" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Task" Binding="{Binding Task.HierarchyTaskDisplay}" Width="*" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Next Date" Binding="{Binding Task.NextDateDisplay}" Width="110" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Status" Binding="{Binding Task.Status}" Width="70" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Link" Binding="{Binding StatusDisplay}" Width="105" IsReadOnly="True" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </Grid>
+                            </Grid>
+                            <Grid Grid.Row="2" Margin="0,14,0,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="New" Command="{Binding NewFilterCommand}" Margin="0,0,8,0" />
+                                    <Button Content="Save" Command="{Binding SaveFilterCommand}" Margin="0,0,8,0" />
+                                    <Button Content="Delete" Command="{Binding DeleteFilterCommand}" IsEnabled="{Binding CanEditManagedFilter}" Background="#8A3B2D" />
+                                </StackPanel>
+                                <Button Content="Close" Command="{Binding CloseFilterManagerCommand}" HorizontalAlignment="Right" Background="#65758B" />
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Border>
+
+                <Border Grid.RowSpan="3"
+                        Background="#66000000"
+                        Panel.ZIndex="9"
+                        Visibility="{Binding IsPausedManagerOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Border Width="760" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center" Background="White" BorderBrush="#C8CED8" BorderThickness="1" Padding="18">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock Text="Paused Tasks" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,14" />
+                            <DataGrid Grid.Row="1" ItemsSource="{Binding PausedTaskItems}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" RowHeaderWidth="0" MinHeight="200">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Task" Binding="{Binding FullPath}" Width="*" />
+                                    <DataGridTextColumn Header="Resume" Binding="{Binding PauseDisplay}" Width="190" />
+                                    <DataGridTemplateColumn Header="Actions" Width="150">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                    <Button Content="Resume" Command="{Binding DataContext.ResumeTaskCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" Padding="8,4" Margin="0,0,6,0" />
+                                                    <Button Content="Edit" Command="{Binding DataContext.EditPausedTaskCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" Padding="8,4" Background="#65758B" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <Button Grid.Row="2" Content="Close" Command="{Binding ClosePausedManagerCommand}" HorizontalAlignment="Right" Margin="0,14,0,0" Background="#65758B" />
+                        </Grid>
+                    </Border>
+                </Border>
+
+                <Border Grid.RowSpan="3"
+                        Background="#66000000"
+                        Panel.ZIndex="11"
+                        Visibility="{Binding IsPauseEditorOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Border Width="460" HorizontalAlignment="Center" VerticalAlignment="Center" Background="White" BorderBrush="#C8CED8" BorderThickness="1" Padding="18">
+                        <StackPanel>
+                            <TextBlock Text="Pause Task" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding PauseTargetDisplay}" Margin="0,5,0,16" Foreground="#546171" TextWrapping="Wrap" />
+                            <TextBlock Text="Resume Date (optional)" FontWeight="SemiBold" Margin="0,0,0,6" />
+                            <StackPanel Orientation="Horizontal">
+                                <DatePicker SelectedDate="{Binding PauseResumeDate}" HorizontalAlignment="Left" />
+                                <Button Content="Clear Date" Command="{Binding ClearPauseResumeDateCommand}" Margin="8,0,0,0" Padding="10,5" Background="#65758B" />
+                            </StackPanel>
+                            <TextBlock Text="Leave blank to pause indefinitely. Existing warning and expired dates will not change." Foreground="#65758B" Margin="0,8,0,16" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Content="Pause" Command="{Binding SavePauseCommand}" Margin="0,0,8,0" Background="#B7791F" />
+                                <Button Content="Cancel" Command="{Binding CancelPauseCommand}" Background="#65758B" />
+                            </StackPanel>
+                        </StackPanel>
                     </Border>
                 </Border>
 

@@ -14,25 +14,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
 {
     private const string AllFilter = "ALL";
     private const string NormalSortMode = "Normal";
-    private const string PrioritySortMode = "Priority";
+    private static readonly TimeSpan CompletionUploadDelay = TimeSpan.FromHours(1);
     private readonly JsonFileStore _fileStore = new();
     private readonly GoogleSheetClient _sheetClient = new();
     private readonly RangeObservableCollection<SheetTask> _tasks = [];
     private readonly List<TaskMutation> _taskSyncQueue = [];
-    private readonly List<WatchListEntry> _watchListEntries = [];
-    private readonly ObservableCollection<WatchListItem> _watchListItems = [];
+    private readonly List<CompletionHistoryRecord> _completionHistoryRecords = [];
+    private readonly ObservableCollection<CompletionHistoryRecord> _completionHistoryItems = [];
+    private readonly ObservableCollection<SheetTask> _expiredPriorityItems = [];
+    private readonly ObservableCollection<SheetTask> _warningPriorityItems = [];
+    private readonly ObservableCollection<SheetTask> _pausedTaskItems = [];
+    private readonly ObservableCollection<MinorTaskCompletionDraft> _minorCompletionDrafts = [];
+    private readonly ObservableCollection<TaskFilterDefinition> _taskFilters = [];
+    private readonly ObservableCollection<TaskFilterDefinition> _filterManagerDrafts = [];
+    private readonly ObservableCollection<FilterTaskSelectionItem> _filterTaskSelectionItems = [];
     private readonly SemaphoreSlim _taskSyncGate = new(1, 1);
     private readonly DispatcherTimer _checkinTimer = new() { Interval = TimeSpan.FromMinutes(1) };
+    private readonly DispatcherTimer _completionUploadTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private AppConfig _config = new();
     private AppConfig _configDraft = new();
     private CheckinSettings _checkinSettings = new();
     private SheetTask? _selectedTask;
-    private WatchListItem? _selectedWatchListItem;
+    private SheetTask? _selectedPriorityTask;
+    private SheetTask? _selectedExpiredPriorityTask;
+    private SheetTask? _selectedWarningPriorityTask;
+    private bool _isPriorityDetailOpen;
     private string _categoryFilter = AllFilter;
     private string _typeFilter = AllFilter;
     private string _statusFilter = AllFilter;
     private string _taskSearchText = string.Empty;
-    private string _selectedSortMode = NormalSortMode;
     private MainViewKind _currentMainView = MainViewKind.Tasks;
     private bool _isLoadingTasks;
     private bool _isMarkingComplete;
@@ -62,6 +72,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private DateTime? _taskSummaryCustomSnoozeUntil = DateTime.Today.AddDays(7);
     private string _taskSummarySnoozeNote = string.Empty;
     private bool _areSecondaryViewsReady;
+    private DateTime _historyMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private bool _isPausedManagerOpen;
+    private bool _isPauseEditorOpen;
+    private SheetTask? _pauseTargetTask;
+    private DateTime? _pauseResumeDate;
+    private string _mainTaskSearchText = string.Empty;
+    private TaskFilterState _taskFilterState = new();
+    private TaskFilterDefinition? _selectedSavedFilter;
+    private TaskFilterDefinition? _managedFilter;
+    private bool _isFilterManagerOpen;
+    private string _filterTaskSearchText = string.Empty;
+    private bool _updatingFilterSelections;
 
     public MainViewModel()
     {
@@ -72,6 +94,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RequestTasksCommand = new RelayCommand(RequestTasksAsync, CanUseNetwork);
         MarkCompleteCommand = new RelayCommand(MarkCompleteAsync, CanMutateSelectedTask);
         ClearFiltersCommand = new RelayCommand(ClearFiltersAsync);
+        ToggleAllTaskDetailsCommand = new RelayCommand(ToggleAllTaskDetailsAsync, CanToggleAllTaskDetails);
         CloseTaskSidebarCommand = new RelayCommand(CloseTaskSidebarAsync);
         OpenSelectedTaskSidebarCommand = new RelayCommand(OpenSelectedTaskSidebarAsync, CanOpenSelectedTaskSidebar);
         NewTaskCommand = new RelayCommand(NewTaskAsync);
@@ -79,6 +102,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SaveTaskCommand = new RelayCommand(SaveTaskAsync);
         CancelTaskEditCommand = new RelayCommand(CancelTaskEditAsync);
         ArchiveTaskCommand = new RelayCommand(ArchiveTaskAsync, CanEditSelectedTask);
+        PauseSelectedTaskCommand = new RelayCommand(OpenPauseSelectedTaskAsync, CanPauseSelectedTask);
+        OpenPausedManagerCommand = new RelayCommand(OpenPausedManagerAsync);
+        ClosePausedManagerCommand = new RelayCommand(ClosePausedManagerAsync);
+        SavePauseCommand = new RelayCommand(SavePauseAsync, HasPauseTargetTask);
+        CancelPauseCommand = new RelayCommand(CancelPauseAsync);
+        ResumeTaskCommand = new ParameterRelayCommand<SheetTask>(ResumeTaskAsync, CanManageTask);
+        OpenFilterManagerCommand = new RelayCommand(OpenFilterManagerAsync);
+        CloseFilterManagerCommand = new RelayCommand(CloseFilterManagerAsync);
+        NewFilterCommand = new RelayCommand(NewFilterAsync);
+        SaveFilterCommand = new RelayCommand(SaveManagedFilterAsync);
+        DeleteFilterCommand = new RelayCommand(DeleteManagedFilterAsync);
+        SetFavouriteFilterCommand = new RelayCommand(SetFavouriteManagedFilterAsync);
+        EditPausedTaskCommand = new ParameterRelayCommand<SheetTask>(EditPausedTaskAsync, CanManageTask);
+        EditLinkedTaskCommand = new ParameterRelayCommand<SheetTask>(EditLinkedTaskAsync, CanManageTask);
+        AddMinorTaskCommand = new RelayCommand(AddMinorTaskAsync);
+        RemoveMinorTaskCommand = new ParameterRelayCommand<MinorTask>(RemoveMinorTaskAsync);
+        ClearTaskLinkCommand = new RelayCommand(ClearTaskLinkAsync);
+        ClearMinorTaskDateCommand = new ParameterRelayCommand<MinorTask>(ClearMinorTaskDateAsync);
+        ClearPauseResumeDateCommand = new RelayCommand(ClearPauseResumeDateAsync);
         OpenTaskConflictsCommand = new RelayCommand(OpenTaskConflictsAsync, HasTaskConflicts);
         CloseTaskConflictsCommand = new RelayCommand(CloseTaskConflictsAsync);
         KeepPcTaskConflictCommand = new RelayCommand(KeepPcTaskConflictAsync, HasSelectedTaskConflict);
@@ -92,20 +134,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SnoozeTaskSummaryCustomCommand = new RelayCommand(SnoozeSelectedTaskSummaryItemToCustomDateAsync, CanSnoozeSelectedTaskSummaryItemToCustomDate);
         ClearTaskSummarySnoozeCommand = new RelayCommand(ClearSelectedTaskSummaryItemSnoozeAsync, CanClearSelectedTaskSummaryItemSnooze);
         ShowTasksViewCommand = new RelayCommand(ShowTasksViewAsync);
-        ShowWatchListViewCommand = new RelayCommand(ShowWatchListViewAsync, CanOpenSecondaryView);
+        ShowPriorityViewCommand = new RelayCommand(ShowPriorityViewAsync, CanOpenSecondaryView);
         ShowDailySummaryViewCommand = new RelayCommand(ShowDailySummaryViewAsync, CanOpenSecondaryView);
-        ToggleSelectedTaskWatchCommand = new RelayCommand(ToggleSelectedTaskWatchAsync, CanToggleSelectedTaskWatch);
-        OpenSelectedWatchTaskCommand = new RelayCommand(OpenSelectedWatchTaskAsync, HasSelectedWatchListItem);
+        ShowHistoryViewCommand = new RelayCommand(ShowHistoryViewAsync, CanOpenSecondaryView);
+        PreviousHistoryMonthCommand = new RelayCommand(ShowPreviousHistoryMonthAsync);
+        NextHistoryMonthCommand = new RelayCommand(ShowNextHistoryMonthAsync, CanShowNextHistoryMonth);
+        OpenPriorityDetailCommand = new RelayCommand(OpenPriorityDetailAsync, HasSelectedPriorityTask);
+        ClosePriorityDetailCommand = new RelayCommand(ClosePriorityDetailAsync);
+        UndoCompletionCommand = new ParameterRelayCommand<CompletionHistoryRecord>(UndoCompletionAsync, record => record.CanUndo);
         CheckinCommand = new RelayCommand(CheckinAsync);
         OpenSettingsCommand = new RelayCommand(OpenSettingsAsync);
         SaveSettingsCommand = new RelayCommand(SaveSettingsAsync);
         CancelSettingsCommand = new RelayCommand(CancelSettingsAsync);
         CheckinSettingsDraft = new ObservableCollection<CheckinDaySetting>();
         _checkinTimer.Tick += CheckinTimer_Tick;
+        _completionUploadTimer.Tick += CompletionUploadTimer_Tick;
     }
 
     public ICollectionView TasksView { get; }
-    public ObservableCollection<WatchListItem> WatchListItems => _watchListItems;
+    public ObservableCollection<CompletionHistoryRecord> CompletionHistoryItems => _completionHistoryItems;
+    public ObservableCollection<SheetTask> ExpiredPriorityItems => _expiredPriorityItems;
+    public ObservableCollection<SheetTask> WarningPriorityItems => _warningPriorityItems;
+    public ObservableCollection<SheetTask> PausedTaskItems => _pausedTaskItems;
+    public ObservableCollection<MinorTaskCompletionDraft> MinorCompletionDrafts => _minorCompletionDrafts;
+    public ObservableCollection<TaskFilterDefinition> TaskFilters => _taskFilters;
+    public ObservableCollection<TaskFilterDefinition> FilterManagerDrafts => _filterManagerDrafts;
+    public ObservableCollection<FilterTaskSelectionItem> FilterTaskSelectionItems => _filterTaskSelectionItems;
     public ObservableCollection<string> Categories
     {
         get => _categories;
@@ -133,12 +187,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public IEnumerable<string> TaskTypeOptions => Types.Where(value => value != AllFilter);
 
     public string[] Statuses { get; } = [AllFilter, "Normal", "Warning", "Expired", "Pending", "Warning + Expired"];
-    public string[] SortModes { get; } = [NormalSortMode, PrioritySortMode];
+    public int[] TaskLevels { get; } = [1, 2, 3, 4, 5];
     public string[] TaskCycleUnits { get; } = ["Day", "Month", "Year"];
 
     public RelayCommand RequestTasksCommand { get; }
     public RelayCommand MarkCompleteCommand { get; }
     public RelayCommand ClearFiltersCommand { get; }
+    public RelayCommand ToggleAllTaskDetailsCommand { get; }
     public RelayCommand CloseTaskSidebarCommand { get; }
     public RelayCommand OpenSelectedTaskSidebarCommand { get; }
     public RelayCommand NewTaskCommand { get; }
@@ -146,6 +201,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand SaveTaskCommand { get; }
     public RelayCommand CancelTaskEditCommand { get; }
     public RelayCommand ArchiveTaskCommand { get; }
+    public RelayCommand PauseSelectedTaskCommand { get; }
+    public RelayCommand OpenPausedManagerCommand { get; }
+    public RelayCommand ClosePausedManagerCommand { get; }
+    public RelayCommand SavePauseCommand { get; }
+    public RelayCommand CancelPauseCommand { get; }
+    public ParameterRelayCommand<SheetTask> ResumeTaskCommand { get; }
+    public ParameterRelayCommand<SheetTask> EditPausedTaskCommand { get; }
+    public ParameterRelayCommand<SheetTask> EditLinkedTaskCommand { get; }
+    public RelayCommand OpenFilterManagerCommand { get; }
+    public RelayCommand CloseFilterManagerCommand { get; }
+    public RelayCommand NewFilterCommand { get; }
+    public RelayCommand SaveFilterCommand { get; }
+    public RelayCommand DeleteFilterCommand { get; }
+    public RelayCommand SetFavouriteFilterCommand { get; }
+    public RelayCommand AddMinorTaskCommand { get; }
+    public ParameterRelayCommand<MinorTask> RemoveMinorTaskCommand { get; }
+    public RelayCommand ClearTaskLinkCommand { get; }
+    public ParameterRelayCommand<MinorTask> ClearMinorTaskDateCommand { get; }
+    public RelayCommand ClearPauseResumeDateCommand { get; }
     public RelayCommand OpenTaskConflictsCommand { get; }
     public RelayCommand CloseTaskConflictsCommand { get; }
     public RelayCommand KeepPcTaskConflictCommand { get; }
@@ -159,16 +233,127 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand SnoozeTaskSummaryCustomCommand { get; }
     public RelayCommand ClearTaskSummarySnoozeCommand { get; }
     public RelayCommand ShowTasksViewCommand { get; }
-    public RelayCommand ShowWatchListViewCommand { get; }
+    public RelayCommand ShowPriorityViewCommand { get; }
     public RelayCommand ShowDailySummaryViewCommand { get; }
-    public RelayCommand ToggleSelectedTaskWatchCommand { get; }
-    public RelayCommand OpenSelectedWatchTaskCommand { get; }
+    public RelayCommand ShowHistoryViewCommand { get; }
+    public RelayCommand PreviousHistoryMonthCommand { get; }
+    public RelayCommand NextHistoryMonthCommand { get; }
+    public RelayCommand OpenPriorityDetailCommand { get; }
+    public RelayCommand ClosePriorityDetailCommand { get; }
+    public ParameterRelayCommand<CompletionHistoryRecord> UndoCompletionCommand { get; }
     public RelayCommand CheckinCommand { get; }
     public RelayCommand OpenSettingsCommand { get; }
     public RelayCommand SaveSettingsCommand { get; }
     public RelayCommand CancelSettingsCommand { get; }
 
     public ObservableCollection<CheckinDaySetting> CheckinSettingsDraft { get; }
+
+    public IEnumerable<SheetTask> LinkSourceOptions => _tasks
+        .Where(task => !task.Archived
+            && !string.Equals(task.TaskId, TaskEditDraft.TaskId, StringComparison.OrdinalIgnoreCase)
+            && (string.IsNullOrWhiteSpace(MainTaskSearchText)
+                || task.FullPath.Contains(MainTaskSearchText.Trim(), StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase);
+
+    public string MainTaskSearchText
+    {
+        get => _mainTaskSearchText;
+        set
+        {
+            if (_mainTaskSearchText == value) return;
+            _mainTaskSearchText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LinkSourceOptions));
+        }
+    }
+
+    public TaskFilterDefinition? SelectedSavedFilter
+    {
+        get => _selectedSavedFilter;
+        set
+        {
+            if (ReferenceEquals(_selectedSavedFilter, value)) return;
+            _selectedSavedFilter = value;
+            OnPropertyChanged();
+            RebuildFilterLists();
+            TasksView.Refresh();
+            RefreshTaskExpansionToggle();
+        }
+    }
+
+    public TaskFilterDefinition? ManagedFilter
+    {
+        get => _managedFilter;
+        set
+        {
+            if (ReferenceEquals(_managedFilter, value)) return;
+            _managedFilter = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanEditManagedFilter));
+            RebuildFilterTaskSelections();
+        }
+    }
+
+    public bool IsFilterManagerOpen
+    {
+        get => _isFilterManagerOpen;
+        private set { if (_isFilterManagerOpen == value) return; _isFilterManagerOpen = value; OnPropertyChanged(); }
+    }
+
+    public bool CanEditManagedFilter => ManagedFilter is { IsSystem: false };
+
+    public string FilterTaskSearchText
+    {
+        get => _filterTaskSearchText;
+        set { if (_filterTaskSearchText == value) return; _filterTaskSearchText = value; OnPropertyChanged(); RebuildFilterTaskSelections(); }
+    }
+
+    public int PausedTaskCount => _tasks.Count(task => !task.Archived && task.IsEffectivelyPaused);
+
+    public string PausedButtonDisplay => $"Paused ({PausedTaskCount})";
+
+    public string ExpandCollapseAllGlyph => AreAllVisibleTaskDetailsExpanded ? "\uE70E" : "\uE70D";
+
+    public string ExpandCollapseAllToolTip => AreAllVisibleTaskDetailsExpanded
+        ? "Collapse All Task Details"
+        : "Expand All Task Details";
+
+    public bool IsPausedManagerOpen
+    {
+        get => _isPausedManagerOpen;
+        private set
+        {
+            if (_isPausedManagerOpen == value) return;
+            _isPausedManagerOpen = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsPauseEditorOpen
+    {
+        get => _isPauseEditorOpen;
+        private set
+        {
+            if (_isPauseEditorOpen == value) return;
+            _isPauseEditorOpen = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public DateTime? PauseResumeDate
+    {
+        get => _pauseResumeDate;
+        set
+        {
+            if (_pauseResumeDate == value) return;
+            _pauseResumeDate = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string PauseTargetDisplay => _pauseTargetTask?.FullPath ?? string.Empty;
 
     public MainViewKind CurrentMainView
     {
@@ -183,16 +368,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _currentMainView = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsTasksView));
-            OnPropertyChanged(nameof(IsWatchListView));
+            OnPropertyChanged(nameof(IsPriorityView));
             OnPropertyChanged(nameof(IsDailySummaryView));
+            OnPropertyChanged(nameof(IsHistoryView));
         }
     }
 
     public bool IsTasksView => CurrentMainView == MainViewKind.Tasks;
 
-    public bool IsWatchListView => CurrentMainView == MainViewKind.WatchList;
+    public bool IsPriorityView => CurrentMainView == MainViewKind.Priority;
 
     public bool IsDailySummaryView => CurrentMainView == MainViewKind.DailySummary;
+
+    public bool IsHistoryView => CurrentMainView == MainViewKind.History;
 
     public bool AreSecondaryViewsReady
     {
@@ -206,32 +394,91 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _areSecondaryViewsReady = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(WatchListDisplay));
+            OnPropertyChanged(nameof(PriorityViewDisplay));
             OnPropertyChanged(nameof(DailySummaryViewDisplay));
-            ShowWatchListViewCommand.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(HistoryViewDisplay));
+            ShowPriorityViewCommand.RaiseCanExecuteChanged();
             ShowDailySummaryViewCommand.RaiseCanExecuteChanged();
+            ShowHistoryViewCommand.RaiseCanExecuteChanged();
         }
     }
 
-    public string WatchListDisplay => AreSecondaryViewsReady
-        ? $"Watch List ({WatchListItems.Count})"
-        : "Watch List (loading)";
+    public string PriorityViewDisplay => AreSecondaryViewsReady
+        ? $"Priority ({ExpiredPriorityItems.Count + WarningPriorityItems.Count})"
+        : "Priority (loading)";
 
-    public WatchListItem? SelectedWatchListItem
+    public string HistoryViewDisplay => AreSecondaryViewsReady
+        ? $"History ({CompletionHistoryItems.Count})"
+        : "History (loading)";
+
+    public string HistoryMonthDisplay => _historyMonth.ToString("MMMM yyyy");
+
+    public SheetTask? SelectedPriorityTask
     {
-        get => _selectedWatchListItem;
+        get => _selectedPriorityTask;
         set
         {
-            if (_selectedWatchListItem == value)
-            {
-                return;
-            }
-
-            _selectedWatchListItem = value;
+            if (_selectedPriorityTask == value) return;
+            _selectedPriorityTask = value;
             OnPropertyChanged();
-            RefreshCommands();
+            if (value is not null && IsPriorityDetailOpen)
+            {
+                SelectedTask = value;
+            }
+            OpenPriorityDetailCommand.RaiseCanExecuteChanged();
         }
     }
+
+    public bool IsPriorityDetailOpen
+    {
+        get => _isPriorityDetailOpen;
+        private set
+        {
+            if (_isPriorityDetailOpen == value) return;
+            _isPriorityDetailOpen = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public SheetTask? SelectedExpiredPriorityTask
+    {
+        get => _selectedExpiredPriorityTask;
+        set
+        {
+            if (_selectedExpiredPriorityTask == value) return;
+            _selectedExpiredPriorityTask = value;
+            OnPropertyChanged();
+            if (value is not null)
+            {
+                _selectedWarningPriorityTask = null;
+                OnPropertyChanged(nameof(SelectedWarningPriorityTask));
+                SelectedPriorityTask = value;
+            }
+        }
+    }
+
+    public SheetTask? SelectedWarningPriorityTask
+    {
+        get => _selectedWarningPriorityTask;
+        set
+        {
+            if (_selectedWarningPriorityTask == value) return;
+            _selectedWarningPriorityTask = value;
+            OnPropertyChanged();
+            if (value is not null)
+            {
+                _selectedExpiredPriorityTask = null;
+                OnPropertyChanged(nameof(SelectedExpiredPriorityTask));
+                SelectedPriorityTask = value;
+            }
+        }
+    }
+
+    public bool HasExpiredPriorityItems => ExpiredPriorityItems.Count > 0;
+
+    public bool HasWarningPriorityItems => WarningPriorityItems.Count > 0;
+
+    public bool HasCompletionHistoryItems => CompletionHistoryItems.Count > 0;
 
     public bool CheckinCheckboxValue => false;
 
@@ -337,23 +584,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public string SelectedSortMode
-    {
-        get => _selectedSortMode;
-        set
-        {
-            var normalizedValue = value == PrioritySortMode ? PrioritySortMode : NormalSortMode;
-            if (_selectedSortMode == normalizedValue)
-            {
-                return;
-            }
-
-            _selectedSortMode = normalizedValue;
-            OnPropertyChanged();
-            ApplyTaskSort();
-        }
-    }
-
     public SheetTask? SelectedTask
     {
         get => _selectedTask;
@@ -367,22 +597,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _selectedTask = value;
             SelectedRemarkDraft = value?.Remark ?? string.Empty;
             CompletionDate = DateTime.Today;
+            PrepareMinorCompletionDrafts(value);
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedTaskPath));
             OnPropertyChanged(nameof(SelectedTaskDateDisplay));
             OnPropertyChanged(nameof(SelectedTaskDayLeftDisplay));
             OnPropertyChanged(nameof(SelectedTaskSnoozeDisplay));
             OnPropertyChanged(nameof(SelectedTaskGoogleTaskDisplay));
-            OnPropertyChanged(nameof(IsSelectedTaskWatched));
-            OnPropertyChanged(nameof(WatchListActionDisplay));
             RefreshCommands();
         }
     }
-
-    public bool IsSelectedTaskWatched => SelectedTask is not null
-        && _watchListEntries.Any(entry => string.Equals(entry.TaskId, SelectedTask.TaskId, StringComparison.OrdinalIgnoreCase));
-
-    public string WatchListActionDisplay => IsSelectedTaskWatched ? "Remove from Watch List" : "Add to Watch List";
 
     public string CategoryFilter
     {
@@ -615,6 +839,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             _taskEditDraft = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(LinkSourceOptions));
         }
     }
 
@@ -665,6 +890,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _completionDate = value;
             OnPropertyChanged();
+            foreach (var minorDraft in _minorCompletionDrafts)
+            {
+                minorDraft.CompletionDate = value;
+            }
         }
     }
 
@@ -859,30 +1088,54 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             var taskSyncQueueLoad = _fileStore.LoadTaskSyncQueueAsync();
             var cachedTasksLoad = _fileStore.LoadTasksAsync();
-            var watchListLoad = _fileStore.LoadWatchListAsync();
+            var completionHistoryLoad = _fileStore.LoadCompletionHistoryAsync();
             var checkinSettingsLoad = _fileStore.LoadCheckinSettingsAsync();
-            await Task.WhenAll(taskSyncQueueLoad, cachedTasksLoad, watchListLoad, checkinSettingsLoad);
+            var taskFiltersLoad = _fileStore.LoadTaskFiltersAsync();
+            await Task.WhenAll(taskSyncQueueLoad, cachedTasksLoad, completionHistoryLoad, checkinSettingsLoad, taskFiltersLoad);
 
             _taskSyncQueue.Clear();
             _taskSyncQueue.AddRange(await taskSyncQueueLoad);
-            _watchListEntries.Clear();
-            _watchListEntries.AddRange((await watchListLoad)
-                .Where(entry => !string.IsNullOrWhiteSpace(entry.TaskId))
-                .GroupBy(entry => entry.TaskId, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.OrderBy(entry => entry.AddedAt).First()));
+            _completionHistoryRecords.Clear();
+            _completionHistoryRecords.AddRange(await completionHistoryLoad);
+            var reconciledHistory = false;
+            foreach (var record in _completionHistoryRecords.Where(item => item.State == CompletionHistoryStates.Pending))
+            {
+                var matchingMutation = _taskSyncQueue.FirstOrDefault(item => item.OperationId == record.OperationId);
+                if (matchingMutation?.State == TaskMutationStates.Conflict)
+                {
+                    record.State = CompletionHistoryStates.Conflict;
+                    reconciledHistory = true;
+                }
+                else if (matchingMutation is null)
+                {
+                    record.State = CompletionHistoryStates.Synced;
+                    reconciledHistory = true;
+                }
+            }
             _checkinSettings = await checkinSettingsLoad;
+            _taskFilterState = await taskFiltersLoad;
+            LoadTaskFilters(_taskFilterState.Filters);
             ResetSettingsDraft();
             ResetFilters(resetSortMode: true);
             var cachedTasks = await cachedTasksLoad;
+            if (_completionHistoryRecords.Count == 0)
+            {
+                SeedLegacyCompletionHistory(cachedTasks);
+                await _fileStore.SaveCompletionHistoryAsync(_completionHistoryRecords);
+            }
+            else if (reconciledHistory)
+            {
+                await _fileStore.SaveCompletionHistoryAsync(_completionHistoryRecords);
+            }
             ReplaceTasks(cachedTasks, rebuildSecondaryViews: false);
             _ = BuildSecondaryViewsAfterStartupAsync();
             AppLogger.Info($"Loaded {cachedTasks.Count} cached task(s) from {AppPaths.TaskCachePath}");
-            AppLogger.Info($"Loaded {_watchListEntries.Count} watch-list entr{(_watchListEntries.Count == 1 ? "y" : "ies")} from {AppPaths.WatchListPath}");
             AppLogger.Info($"Loaded check-in settings from {AppPaths.CheckinSettingsPath}");
             Message = cachedTasks.Count == 0
                 ? "No cached tasks. Press Sync to retrieve from Google Sheet."
                 : $"Loaded {cachedTasks.Count} cached task(s). {TaskSyncDisplay}.";
             _checkinTimer.Start();
+            _completionUploadTimer.Start();
             RefreshCheckinDisplayIfNeeded(force: true);
             await CheckAndNotifyCheckinAsync();
             RefreshTaskSyncState();
@@ -907,10 +1160,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsSettingsOpen = false;
         IsTaskEditorOpen = false;
         IsTaskConflictOpen = false;
+        IsPausedManagerOpen = false;
+        IsPauseEditorOpen = false;
+        IsFilterManagerOpen = false;
+        _pauseTargetTask = null;
+        SavePauseCommand.RaiseCanExecuteChanged();
+        PauseResumeDate = null;
+        _minorCompletionDrafts.Clear();
         SelectedTaskSummaryItem = null;
         SelectedExpiredTaskSummaryItem = null;
         SelectedWarningTaskSummaryItem = null;
         SelectedSnoozedTaskSummaryItem = null;
+        SelectedPriorityTask = null;
+        SelectedExpiredPriorityTask = null;
+        SelectedWarningPriorityTask = null;
+        IsPriorityDetailOpen = false;
         ClearTaskSelection();
     }
 
@@ -921,14 +1185,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            await ProcessPendingMutationsAsync();
-            var tasks = await _sheetClient.GetTasksAsync(_config, CancellationToken.None);
-            MergeServerTasks(tasks);
-            await PruneWatchListAsync();
+            await ProcessPendingMutationsAsync(includeDelayed: true);
+            var snapshot = await _sheetClient.GetTaskSnapshotAsync(_config, CancellationToken.None);
+            MergeServerTasks(snapshot.Tasks);
+            MergeServerCompletionHistory(snapshot.HistoryRecords);
             ResetFilters(resetSortMode: false);
             await _fileStore.SaveTasksAsync(_tasks);
             await _fileStore.SaveTaskSyncQueueAsync(_taskSyncQueue);
-            Message = $"Sync complete. {_tasks.Count(task => !task.Archived)} task(s); {TaskSyncDisplay}.";
+            await _fileStore.SaveCompletionHistoryAsync(_completionHistoryRecords);
+            var filterWarning = FindFilterMembershipWarning();
+            Message = $"Sync complete. {_tasks.Count(task => !task.Archived)} task(s); {TaskSyncDisplay}."
+                + (string.IsNullOrWhiteSpace(filterWarning) ? string.Empty : $" Filter warning: {filterWarning}");
         }
         catch (Exception ex)
         {
@@ -955,26 +1222,76 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        if (taskToComplete.ExpiredValue <= 0 || taskToComplete.WarningValue < 0)
+        {
+            Message = "Cannot complete this task: expired value must be positive and warning value cannot be negative. Edit the task cycle first.";
+            return;
+        }
+
         AppLogger.Info($"Mark Complete clicked for task {taskToComplete.TaskId}: {DescribeTask(taskToComplete)}");
-        var confirmation = MessageBox.Show(
-            $"Mark this task as completed?\n\n{DescribeTask(taskToComplete)}",
-            "Confirm Complete",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-        if (confirmation != MessageBoxResult.Yes)
+        var selectedMinors = _minorCompletionDrafts.Where(item => item.IsSelected).ToList();
+        if (selectedMinors.Any(item => item.CompletionDate is null))
+        {
+            Message = "Every selected minor task needs a completion date.";
+            return;
+        }
+
+        var selectedMinorDisplay = selectedMinors.Count == 0
+            ? "None"
+            : string.Join(", ", selectedMinors.Select(item => item.MinorTask.Name));
+
+        if (MessageBox.Show(
+                $"Mark this task as completed?\n\n{DescribeTask(taskToComplete)}\n\nMinor tasks: {selectedMinorDisplay}",
+                "Confirm Complete",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes)
         {
             AppLogger.Info($"Mark Complete cancelled for row {taskToComplete.RowNumber}: {DescribeTask(taskToComplete)}");
             Message = "Mark Complete cancelled.";
             return;
         }
 
+        await CompleteSelectedTaskAsync(selectedMinors);
+    }
+
+    private void PrepareMinorCompletionDrafts(SheetTask? task)
+    {
+        _minorCompletionDrafts.Clear();
+        if (task is null)
+        {
+            return;
+        }
+
+        foreach (var minor in task.ActiveMinorTasks)
+        {
+            _minorCompletionDrafts.Add(new MinorTaskCompletionDraft
+            {
+                MinorTask = minor,
+                CompletionDate = CompletionDate ?? DateTime.Today
+            });
+        }
+    }
+
+    private async Task CompleteSelectedTaskAsync(IReadOnlyList<MinorTaskCompletionDraft> selectedMinors)
+    {
+        if (SelectedTask is null) return;
+
+        var taskToComplete = SelectedTask;
         var completionDate = CompletionDate ?? DateTime.Today;
         var remark = SelectedRemarkDraft;
+
         IsMarkingComplete = true;
         Message = "Completing task...";
 
         try
         {
+            var beforeTask = CloneTask(taskToComplete);
+            var affectedFollowers = _tasks
+                .Where(task => !task.Archived
+                    && !task.IsLinkedUnlocked
+                    && string.Equals(task.PredecessorTaskId, taskToComplete.TaskId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var beforeAffectedTasks = affectedFollowers.Select(CloneTask).ToList();
             var nextExpiredDate = AddTaskInterval(completionDate, taskToComplete.ExpiredValue, taskToComplete.ExpiredUnit);
             var nextWarningDate = AddTaskInterval(completionDate, taskToComplete.WarningValue, taskToComplete.WarningUnit);
             if (nextWarningDate > nextExpiredDate)
@@ -991,20 +1308,76 @@ public sealed class MainViewModel : INotifyPropertyChanged
             taskToComplete.WarningDate = nextWarningDate;
             taskToComplete.SnoozeUntil = null;
             taskToComplete.SnoozeNote = string.Empty;
+
+            var minorPayloads = new List<MinorTaskCompletionPayload>();
+            var minorSummaryItems = new List<string>();
+            foreach (var draft in selectedMinors)
+            {
+                var minor = taskToComplete.MinorTasks.First(item => string.Equals(
+                    item.MinorTaskId,
+                    draft.MinorTask.MinorTaskId,
+                    StringComparison.OrdinalIgnoreCase));
+                var minorDate = draft.CompletionDate!.Value.Date;
+                minor.LatestCompletionDate = minorDate;
+                minor.DueDate = minor.IntervalValue is > 0
+                    ? AddTaskInterval(minorDate, minor.IntervalValue.Value, minor.IntervalUnit)
+                    : null;
+                minor.NotifyCalculatedFieldsChanged();
+                minorPayloads.Add(new MinorTaskCompletionPayload
+                {
+                    MinorTaskId = minor.MinorTaskId,
+                    CompletionDate = minorDate
+                });
+                minorSummaryItems.Add($"{minor.Name} ({minorDate:dd MMM yyyy})");
+            }
+
+            if (!string.IsNullOrWhiteSpace(taskToComplete.PredecessorTaskId))
+            {
+                taskToComplete.IsLinkedUnlocked = false;
+                taskToComplete.LinkedActivationDate = null;
+            }
+            foreach (var follower in affectedFollowers)
+            {
+                RestoreMissingLinkedDates(follower);
+                follower.IsLinkedUnlocked = true;
+                follower.LinkedActivationDate = completionDate.Date;
+                follower.NotifyCalculatedFieldsChanged();
+            }
             taskToComplete.NotifyCalculatedFieldsChanged();
             var mutation = CreateMutation(taskToComplete, TaskMutationTypes.Complete);
             mutation.Payload.ExecuteDate = completionDate;
             mutation.Payload.Remark = remark;
-            await QueueAndTryMutationAsync(mutation);
-            await RemoveTaskFromWatchListAsync(taskToComplete.TaskId);
+            mutation.Payload.MinorCompletions = minorPayloads;
+            mutation.UploadAfter = DateTimeOffset.Now.Add(CompletionUploadDelay);
+            _taskSyncQueue.Add(mutation);
+            _completionHistoryRecords.Add(new CompletionHistoryRecord
+            {
+                OperationId = mutation.OperationId,
+                TaskId = taskToComplete.TaskId,
+                CompletedDate = completionDate.Date,
+                Category = taskToComplete.Category,
+                Type = taskToComplete.Type,
+                Task = taskToComplete.Task,
+                Remark = remark,
+                State = CompletionHistoryStates.Pending,
+                BeforeTask = beforeTask,
+                BeforeAffectedTasks = beforeAffectedTasks,
+                MinorCompletionSummary = string.Join(", ", minorSummaryItems)
+            });
+            RefreshTaskRelationships();
+            await PersistTaskStateAsync();
             SelectedTask = null;
             IsTaskSidebarOpen = false;
             SelectedRemarkDraft = string.Empty;
             RebuildFilterLists();
             RebuildTaskSummary();
-            RebuildWatchListItems();
+            RebuildPriorityItems();
+            RebuildCompletionHistory();
+            RebuildPausedTasks();
+            IsPriorityDetailOpen = false;
             TasksView.Refresh();
-            Message = $"Completion saved locally. {TaskSyncDisplay}.";
+            RefreshTaskExpansionToggle();
+            Message = $"Completion saved locally. Undo is available until it syncs after {mutation.UploadAfter:HH:mm}. {TaskSyncDisplay}.";
         }
         catch (Exception ex)
         {
@@ -1014,6 +1387,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         finally
         {
             IsMarkingComplete = false;
+            _minorCompletionDrafts.Clear();
         }
     }
 
@@ -1023,72 +1397,336 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return Task.CompletedTask;
     }
 
+    private Task ToggleAllTaskDetailsAsync()
+    {
+        var expandableTasks = GetVisibleExpandableTasks();
+        if (expandableTasks.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        var expand = !expandableTasks.All(task => task.IsExpanded);
+        foreach (var task in expandableTasks)
+        {
+            task.IsExpanded = expand;
+        }
+
+        TasksView.Refresh();
+        RefreshTaskExpansionToggle();
+        return Task.CompletedTask;
+    }
+
+    public void NotifyTaskExpansionChanged()
+    {
+        RefreshTaskExpansionToggle();
+    }
+
+    private Task OpenFilterManagerAsync()
+    {
+        _filterManagerDrafts.Clear();
+        foreach (var filter in _taskFilters.Select(CloneTaskFilter)) _filterManagerDrafts.Add(filter);
+        FilterTaskSearchText = string.Empty;
+        var selectedId = SelectedSavedFilter?.FilterId ?? TaskFilterIds.Default;
+        ManagedFilter = _filterManagerDrafts.FirstOrDefault(item => item.FilterId == selectedId)
+            ?? _filterManagerDrafts.FirstOrDefault();
+        OnPropertyChanged(nameof(FilterManagerDrafts));
+        IsFilterManagerOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private Task CloseFilterManagerAsync()
+    {
+        ManagedFilter = null;
+        _filterManagerDrafts.Clear();
+        FilterTaskSearchText = string.Empty;
+        IsFilterManagerOpen = false;
+        Message = "Filter changes discarded.";
+        return Task.CompletedTask;
+    }
+
+    private Task NewFilterAsync()
+    {
+        var filter = new TaskFilterDefinition
+        {
+            Name = $"New Filter {_filterManagerDrafts.Count(item => !item.IsSystem) + 1}",
+            SortOrder = _filterManagerDrafts.Count
+        };
+        _filterManagerDrafts.Add(filter);
+        ManagedFilter = filter;
+        OnPropertyChanged(nameof(FilterManagerDrafts));
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveManagedFilterAsync()
+    {
+        var customFilters = _filterManagerDrafts.Where(item => !item.IsSystem).ToList();
+        if (customFilters.Any(item => string.IsNullOrWhiteSpace(item.Name))
+            || customFilters.GroupBy(item => item.Name.Trim(), StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
+        {
+            Message = "Every custom filter needs a unique name.";
+            return;
+        }
+
+        foreach (var filter in customFilters)
+        {
+            filter.Name = filter.Name.Trim();
+            filter.TaskIds = filter.TaskIds
+                .Where(id => _tasks.Any(task => string.Equals(task.TaskId, id, StringComparison.OrdinalIgnoreCase) && !task.IsEffectivelyPaused))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        if (_filterManagerDrafts.Count(item => item.IsFavourite) != 1)
+        {
+            foreach (var filter in _filterManagerDrafts) filter.IsFavourite = filter.FilterId == TaskFilterIds.Default;
+        }
+
+        var selectedId = SelectedSavedFilter?.FilterId;
+        _taskFilters.Clear();
+        foreach (var filter in _filterManagerDrafts.Select(CloneTaskFilter)) _taskFilters.Add(filter);
+        OnPropertyChanged(nameof(TaskFilters));
+        SelectedSavedFilter = _taskFilters.FirstOrDefault(item => item.FilterId == selectedId)
+            ?? _taskFilters.FirstOrDefault(item => item.IsFavourite)
+            ?? _taskFilters.First(item => item.FilterId == TaskFilterIds.Default);
+        await SaveTaskFiltersLocallyAsync(pending: false);
+        TasksView.Refresh();
+        IsFilterManagerOpen = false;
+        ManagedFilter = null;
+        _filterManagerDrafts.Clear();
+        Message = "Filter configuration saved.";
+    }
+
+    private Task DeleteManagedFilterAsync()
+    {
+        if (ManagedFilter is null || ManagedFilter.IsSystem) return Task.CompletedTask;
+        var removed = ManagedFilter;
+        _filterManagerDrafts.Remove(removed);
+        ManagedFilter = _filterManagerDrafts.FirstOrDefault();
+        Message = $"'{removed.Name}' will be deleted when Save is pressed.";
+        return Task.CompletedTask;
+    }
+
+    private Task SetFavouriteManagedFilterAsync()
+    {
+        if (ManagedFilter is null) return Task.CompletedTask;
+        foreach (var filter in _filterManagerDrafts) filter.IsFavourite = ReferenceEquals(filter, ManagedFilter);
+        OnPropertyChanged(nameof(FilterManagerDrafts));
+        Message = $"'{ManagedFilter.Name}' will become the startup filter when Save is pressed.";
+        return Task.CompletedTask;
+    }
+
+    private void LoadTaskFilters(IEnumerable<TaskFilterDefinition> filters)
+    {
+        _taskFilters.Clear();
+        var incoming = filters.ToList();
+        var all = incoming.FirstOrDefault(item => item.FilterId == TaskFilterIds.All)
+            ?? new TaskFilterDefinition { FilterId = TaskFilterIds.All, Name = "ALL", IsSystem = true, SortOrder = 0 };
+        var defaultFilter = incoming.FirstOrDefault(item => item.FilterId == TaskFilterIds.Default)
+            ?? new TaskFilterDefinition { FilterId = TaskFilterIds.Default, Name = "DEFAULT", IsSystem = true, SortOrder = 1 };
+        all.IsSystem = true;
+        defaultFilter.IsSystem = true;
+        _taskFilters.Add(all);
+        _taskFilters.Add(defaultFilter);
+        foreach (var filter in incoming.Where(item => item.FilterId != TaskFilterIds.All && item.FilterId != TaskFilterIds.Default)
+                     .OrderBy(item => item.SortOrder).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            filter.IsSystem = false;
+            _taskFilters.Add(filter);
+        }
+        var favourite = _taskFilters.FirstOrDefault(item => item.IsFavourite) ?? defaultFilter;
+        foreach (var filter in _taskFilters) filter.IsFavourite = ReferenceEquals(filter, favourite);
+        _selectedSavedFilter = favourite;
+        OnPropertyChanged(nameof(TaskFilters));
+        OnPropertyChanged(nameof(SelectedSavedFilter));
+    }
+
+    private static TaskFilterDefinition CloneTaskFilter(TaskFilterDefinition source) => new()
+    {
+        FilterId = source.FilterId,
+        Name = source.Name,
+        IsSystem = source.IsSystem,
+        IsFavourite = source.IsFavourite,
+        SortOrder = source.SortOrder,
+        TaskIds = source.TaskIds.ToList()
+    };
+
+    private void RebuildFilterTaskSelections()
+    {
+        foreach (var oldItem in _filterTaskSelectionItems) oldItem.PropertyChanged -= FilterTaskSelectionChanged;
+        _filterTaskSelectionItems.Clear();
+        if (ManagedFilter is null) return;
+        var selectedIds = ManagedFilter.TaskIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var task in _tasks.OrderBy(item => item.HierarchyOrder))
+        {
+            if (!string.IsNullOrWhiteSpace(FilterTaskSearchText)
+                && !task.FullPath.Contains(FilterTaskSearchText.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
+            var isFollower = !string.IsNullOrWhiteSpace(task.PredecessorTaskId);
+            var effectiveChecked = ManagedFilter.FilterId == TaskFilterIds.All
+                ? !task.Archived
+                : ManagedFilter.FilterId == TaskFilterIds.Default
+                    ? IsActiveViewTask(task)
+                    : selectedIds.Contains(task.TaskId);
+            var rootIncluded = selectedIds.Contains(FindRootTask(task).TaskId);
+            var membershipMismatch = isFollower && !task.IsEffectivelyPaused && rootIncluded != selectedIds.Contains(task.TaskId);
+            var item = new FilterTaskSelectionItem
+            {
+                Task = task,
+                IsChecked = effectiveChecked,
+                IsEnabled = !ManagedFilter.IsSystem && !task.IsEffectivelyPaused && !isFollower,
+                StatusDisplay = task.IsEffectivelyPaused ? "Paused" : membershipMismatch ? "Filter mismatch" : isFollower ? "Follows main task" : string.Empty
+            };
+            item.PropertyChanged += FilterTaskSelectionChanged;
+            _filterTaskSelectionItems.Add(item);
+        }
+    }
+
+    private void FilterTaskSelectionChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_updatingFilterSelections || e.PropertyName != nameof(FilterTaskSelectionItem.IsChecked)
+            || sender is not FilterTaskSelectionItem { IsEnabled: true } root) return;
+        _updatingFilterSelections = true;
+        try
+        {
+            var groupIds = new[] { root.Task }.Concat(GetDescendants(root.Task.TaskId))
+                .Where(item => !item.IsEffectivelyPaused)
+                .Select(item => item.TaskId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            ManagedFilter!.TaskIds.RemoveAll(id => groupIds.Contains(id));
+            if (root.IsChecked) ManagedFilter.TaskIds.AddRange(groupIds);
+            foreach (var item in _filterTaskSelectionItems.Where(item => groupIds.Contains(item.Task.TaskId)))
+            {
+                item.IsChecked = root.IsChecked;
+            }
+        }
+        finally { _updatingFilterSelections = false; }
+    }
+
+    private IEnumerable<SheetTask> GetDescendants(string taskId)
+    {
+        return GetDescendants(taskId, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private IEnumerable<SheetTask> GetDescendants(string taskId, HashSet<string> visited)
+    {
+        if (!visited.Add(taskId)) yield break;
+        foreach (var child in _tasks.Where(item => string.Equals(item.PredecessorTaskId, taskId, StringComparison.OrdinalIgnoreCase)))
+        {
+            yield return child;
+            foreach (var descendant in GetDescendants(child.TaskId, visited)) yield return descendant;
+        }
+    }
+
+    private SheetTask FindRootTask(SheetTask task)
+    {
+        var current = task;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (!string.IsNullOrWhiteSpace(current.PredecessorTaskId) && visited.Add(current.TaskId))
+        {
+            var predecessor = _tasks.FirstOrDefault(item => string.Equals(item.TaskId, current.PredecessorTaskId, StringComparison.OrdinalIgnoreCase));
+            if (predecessor is null) break;
+            current = predecessor;
+        }
+        return current;
+    }
+
+    private string FindFilterMembershipWarning()
+    {
+        foreach (var filter in _taskFilters.Where(item => !item.IsSystem))
+        {
+            foreach (var task in _tasks.Where(item => !item.Archived && !item.IsEffectivelyPaused && !string.IsNullOrWhiteSpace(item.PredecessorTaskId)))
+            {
+                var root = FindRootTask(task);
+                var rootIncluded = filter.TaskIds.Contains(root.TaskId, StringComparer.OrdinalIgnoreCase);
+                var taskIncluded = filter.TaskIds.Contains(task.TaskId, StringComparer.OrdinalIgnoreCase);
+                if (rootIncluded != taskIncluded) return $"'{task.Task}' does not follow its main task in '{filter.Name}'.";
+            }
+        }
+        return string.Empty;
+    }
+
+    private async Task SaveTaskFiltersLocallyAsync(bool pending)
+    {
+        _taskFilterState = new TaskFilterState { Filters = _taskFilters.ToList(), PendingUpload = pending };
+        await _fileStore.SaveTaskFiltersAsync(_taskFilterState);
+    }
+
     private Task ShowTasksViewAsync()
     {
         CloseAllPopupsAndSidebars();
-        SelectedWatchListItem = null;
         CurrentMainView = MainViewKind.Tasks;
         return Task.CompletedTask;
     }
 
-    private Task ShowWatchListViewAsync()
+    private Task ShowPriorityViewAsync()
     {
         CloseAllPopupsAndSidebars();
-        SelectedWatchListItem = null;
-        RebuildWatchListItems();
-        CurrentMainView = MainViewKind.WatchList;
+        SelectedPriorityTask = null;
+        IsPriorityDetailOpen = false;
+        RebuildPriorityItems();
+        CurrentMainView = MainViewKind.Priority;
         return Task.CompletedTask;
     }
 
     private Task ShowDailySummaryViewAsync()
     {
         CloseAllPopupsAndSidebars();
-        SelectedWatchListItem = null;
         RebuildTaskSummary();
         CurrentMainView = MainViewKind.DailySummary;
         return Task.CompletedTask;
     }
 
-    private async Task ToggleSelectedTaskWatchAsync()
+    private Task ShowHistoryViewAsync()
     {
-        if (SelectedTask is null || string.IsNullOrWhiteSpace(SelectedTask.TaskId))
-        {
-            return;
-        }
-
-        var existing = _watchListEntries.FirstOrDefault(entry =>
-            string.Equals(entry.TaskId, SelectedTask.TaskId, StringComparison.OrdinalIgnoreCase));
-        if (existing is null)
-        {
-            _watchListEntries.Add(new WatchListEntry
-            {
-                TaskId = SelectedTask.TaskId,
-                AddedAt = DateTimeOffset.Now
-            });
-            Message = $"Added '{SelectedTask.Task}' to Watch List.";
-        }
-        else
-        {
-            _watchListEntries.Remove(existing);
-            Message = $"Removed '{SelectedTask.Task}' from Watch List.";
-        }
-
-        await _fileStore.SaveWatchListAsync(_watchListEntries);
-        RebuildWatchListItems();
-        OnPropertyChanged(nameof(IsSelectedTaskWatched));
-        OnPropertyChanged(nameof(WatchListActionDisplay));
-        RefreshCommands();
+        CloseAllPopupsAndSidebars();
+        RebuildCompletionHistory();
+        CurrentMainView = MainViewKind.History;
+        return Task.CompletedTask;
     }
 
-    private Task OpenSelectedWatchTaskAsync()
+    private Task ShowPreviousHistoryMonthAsync()
     {
-        if (SelectedWatchListItem is null)
+        _historyMonth = _historyMonth.AddMonths(-1);
+        OnPropertyChanged(nameof(HistoryMonthDisplay));
+        RebuildCompletionHistory();
+        NextHistoryMonthCommand.RaiseCanExecuteChanged();
+        return Task.CompletedTask;
+    }
+
+    private Task ShowNextHistoryMonthAsync()
+    {
+        if (!CanShowNextHistoryMonth()) return Task.CompletedTask;
+        _historyMonth = _historyMonth.AddMonths(1);
+        OnPropertyChanged(nameof(HistoryMonthDisplay));
+        RebuildCompletionHistory();
+        NextHistoryMonthCommand.RaiseCanExecuteChanged();
+        return Task.CompletedTask;
+    }
+
+    private bool CanShowNextHistoryMonth()
+    {
+        var currentMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        return _historyMonth < currentMonth;
+    }
+
+    private Task OpenPriorityDetailAsync()
+    {
+        if (SelectedPriorityTask is null)
         {
             return Task.CompletedTask;
         }
 
-        SelectedTask = SelectedWatchListItem.TaskItem;
-        IsTaskSidebarOpen = true;
+        SelectedTask = SelectedPriorityTask;
+        IsTaskSidebarOpen = false;
+        IsPriorityDetailOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private Task ClosePriorityDetailAsync()
+    {
+        IsPriorityDetailOpen = false;
+        SelectedPriorityTask = null;
+        SelectedExpiredPriorityTask = null;
+        SelectedWarningPriorityTask = null;
+        ClearTaskSelection();
         return Task.CompletedTask;
     }
 
@@ -1096,6 +1734,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         IsTaskSidebarOpen = false;
         SelectedRemarkDraft = string.Empty;
+        _minorCompletionDrafts.Clear();
         return Task.CompletedTask;
     }
 
@@ -1107,6 +1746,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         IsTaskEditorOpen = false;
+        PrepareMinorCompletionDrafts(SelectedTask);
         IsTaskSidebarOpen = true;
         return Task.CompletedTask;
     }
@@ -1167,6 +1807,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             mutation.Payload.SnoozeNote = note;
             await QueueAndTryMutationAsync(mutation);
             RebuildTaskSummary();
+            RebuildPriorityItems();
             TasksView.Refresh();
             Message = $"Snoozed '{task.Task}' until {snoozeUntil:dd MMM yyyy}.";
         }
@@ -1198,6 +1839,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             task.NotifyCalculatedFieldsChanged();
             await QueueAndTryMutationAsync(CreateMutation(task, TaskMutationTypes.ClearSnooze));
             RebuildTaskSummary();
+            RebuildPriorityItems();
             TasksView.Refresh();
             Message = $"Cleared snooze for '{task.Task}'.";
         }
@@ -1211,10 +1853,52 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private Task NewTaskAsync()
     {
         ClearTaskSelection();
+        MainTaskSearchText = string.Empty;
         _isNewTaskDraft = true;
         TaskEditDraft = new TaskEditDraft();
         OnPropertyChanged(nameof(TaskEditorTitle));
         IsTaskEditorOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private Task AddMinorTaskAsync()
+    {
+        TaskEditDraft.MinorTasks.Add(new MinorTask
+        {
+            MinorTaskId = Guid.NewGuid().ToString("D"),
+            ParentTaskId = TaskEditDraft.TaskId,
+            Order = TaskEditDraft.MinorTasks.Count
+        });
+        return Task.CompletedTask;
+    }
+
+    private Task RemoveMinorTaskAsync(MinorTask minorTask)
+    {
+        TaskEditDraft.MinorTasks.Remove(minorTask);
+        for (var index = 0; index < TaskEditDraft.MinorTasks.Count; index++)
+        {
+            TaskEditDraft.MinorTasks[index].Order = index;
+        }
+        return Task.CompletedTask;
+    }
+
+    private Task ClearTaskLinkAsync()
+    {
+        TaskEditDraft.PredecessorTaskId = string.Empty;
+        OnPropertyChanged(nameof(TaskEditDraft));
+        return Task.CompletedTask;
+    }
+
+    private Task ClearMinorTaskDateAsync(MinorTask minorTask)
+    {
+        minorTask.LatestCompletionDate = null;
+        minorTask.DueDate = null;
+        return Task.CompletedTask;
+    }
+
+    private Task ClearPauseResumeDateAsync()
+    {
+        PauseResumeDate = null;
         return Task.CompletedTask;
     }
 
@@ -1226,9 +1910,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         _isNewTaskDraft = false;
+        MainTaskSearchText = string.Empty;
         TaskEditDraft = new TaskEditDraft
         {
             TaskId = SelectedTask.TaskId,
+            Level = SelectedTask.Level,
             Category = SelectedTask.Category,
             Type = SelectedTask.Type,
             Task = SelectedTask.Task,
@@ -1237,7 +1923,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             WarningValue = SelectedTask.WarningValue,
             WarningUnit = SelectedTask.WarningUnit,
             Alert = SelectedTask.Alert,
-            History = SelectedTask.History
+            History = SelectedTask.History,
+            PredecessorTaskId = SelectedTask.PredecessorTaskId,
+            MinorTasks = new ObservableCollection<MinorTask>(SelectedTask.ActiveMinorTasks.Select(CloneMinorTask))
         };
         OnPropertyChanged(nameof(TaskEditorTitle));
         IsTaskSidebarOpen = false;
@@ -1268,6 +1956,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        if (!TaskLevels.Contains(draft.Level))
+        {
+            Message = "Level must be between 1 and 5.";
+            return;
+        }
+
+        if (draft.MinorTasks.Any(minor => string.IsNullOrWhiteSpace(minor.Name)))
+        {
+            Message = "Every minor task needs a name.";
+            return;
+        }
+
+        if (draft.MinorTasks.Any(minor => minor.IntervalValue is <= 0))
+        {
+            Message = "A minor task interval must be blank or greater than zero.";
+            return;
+        }
+
+        if (draft.MinorTasks.Any(minor => minor.IntervalValue is not null && !TaskCycleUnits.Contains(minor.IntervalUnit)))
+        {
+            Message = "Minor task cycle units must be Day, Month, or Year.";
+            return;
+        }
+
         SheetTask task;
         string operationType;
         if (_isNewTaskDraft)
@@ -1291,6 +2003,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
             operationType = TaskMutationTypes.Update;
         }
 
+        if (!ValidateTaskLink(task, draft.PredecessorTaskId, out var linkError))
+        {
+            Message = linkError;
+            if (_isNewTaskDraft) _tasks.Remove(task);
+            return;
+        }
+
+        DateTime? recalculatedExpiredDate = null;
+        DateTime? recalculatedWarningDate = null;
+        if (task.GridLastExecutedDate is DateTime recurrenceAnchor)
+        {
+            recalculatedExpiredDate = AddTaskInterval(recurrenceAnchor.Date, draft.ExpiredValue, draft.ExpiredUnit);
+            recalculatedWarningDate = AddTaskInterval(recurrenceAnchor.Date, draft.WarningValue, draft.WarningUnit);
+            if (recalculatedWarningDate > recalculatedExpiredDate)
+            {
+                Message = "Warning date cannot be after expired date.";
+                return;
+            }
+        }
+
+        task.Level = draft.Level;
         task.Category = ToTitleCase(draft.Category);
         task.Type = ToTitleCase(draft.Type);
         task.Task = ToTitleCase(draft.Task);
@@ -1298,19 +2031,76 @@ public sealed class MainViewModel : INotifyPropertyChanged
         task.ExpiredUnit = draft.ExpiredUnit;
         task.WarningValue = draft.WarningValue;
         task.WarningUnit = draft.WarningUnit;
+        if (recalculatedExpiredDate is not null)
+        {
+            task.ExpiredDate = recalculatedExpiredDate;
+            task.WarningDate = recalculatedWarningDate;
+        }
         task.Alert = draft.Alert;
         task.History = draft.History;
+        var oldPredecessorId = task.PredecessorTaskId;
+        task.PredecessorTaskId = draft.PredecessorTaskId ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(task.PredecessorTaskId))
+        {
+            task.IsLinkedUnlocked = true;
+            task.LinkedActivationDate = null;
+        }
+        else if (!string.Equals(oldPredecessorId, task.PredecessorTaskId, StringComparison.OrdinalIgnoreCase))
+        {
+            task.IsLinkedUnlocked = task.ExpiredDate is not null || task.WarningDate is not null;
+            task.LinkedActivationDate = task.IsLinkedUnlocked ? task.GridLastExecutedDate : null;
+        }
+
+        var retainedArchivedMinors = task.MinorTasks.Where(minor => minor.Archived).Select(CloneMinorTask).ToList();
+        var draftMinorIds = draft.MinorTasks.Select(minor => minor.MinorTaskId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removedMinors = task.MinorTasks
+            .Where(minor => !minor.Archived && !draftMinorIds.Contains(minor.MinorTaskId))
+            .Select(CloneMinorTask)
+            .ToList();
+        foreach (var removedMinor in removedMinors) removedMinor.Archived = true;
+        task.MinorTasks = draft.MinorTasks.Select((minor, index) =>
+        {
+            var copy = CloneMinorTask(minor);
+            copy.ParentTaskId = task.TaskId;
+            copy.Name = ToTitleCase(copy.Name);
+            copy.Order = index;
+            copy.Archived = false;
+            copy.DueDate = copy.IntervalValue is > 0 && copy.LatestCompletionDate is DateTime minorAnchor
+                ? AddTaskInterval(minorAnchor.Date, copy.IntervalValue.Value, copy.IntervalUnit)
+                : null;
+            return copy;
+        }).Concat(removedMinors).Concat(retainedArchivedMinors).ToList();
         task.NotifyCalculatedFieldsChanged();
 
+        if (!string.Equals(oldPredecessorId, task.PredecessorTaskId, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(task.PredecessorTaskId))
+        {
+            var root = FindRootTask(task);
+            var groupIds = new[] { task }.Concat(GetDescendants(task.TaskId)).Select(item => item.TaskId).ToList();
+            foreach (var filter in _taskFilters.Where(item => !item.IsSystem))
+            {
+                var shouldInclude = filter.TaskIds.Contains(root.TaskId, StringComparer.OrdinalIgnoreCase);
+                filter.TaskIds.RemoveAll(id => groupIds.Contains(id, StringComparer.OrdinalIgnoreCase));
+                if (shouldInclude) filter.TaskIds.AddRange(groupIds.Where(id => !filter.TaskIds.Contains(id, StringComparer.OrdinalIgnoreCase)));
+            }
+            await SaveTaskFiltersLocallyAsync(pending: false);
+        }
+
         await QueueAndTryMutationAsync(CreateMutation(task, operationType));
+        RefreshTaskRelationships();
         IsTaskEditorOpen = false;
         _isNewTaskDraft = false;
         SelectedTask = task;
         RebuildFilterLists();
         RebuildTaskSummary();
-        RebuildWatchListItems();
+        RebuildPriorityItems();
+        RebuildCompletionHistory();
+        RebuildPausedTasks();
         TasksView.Refresh();
-        Message = $"Saved '{task.Task}'. {TaskSyncDisplay}.";
+        RefreshTaskExpansionToggle();
+        var membershipWarning = FindFilterMembershipWarning();
+        Message = $"Saved '{task.Task}'. {TaskSyncDisplay}."
+            + (string.IsNullOrWhiteSpace(membershipWarning) ? string.Empty : $" Filter warning: {membershipWarning}");
     }
 
     private Task CancelTaskEditAsync()
@@ -1328,6 +2118,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         var task = SelectedTask;
+        if (task.LinkedFollowers.Count > 0)
+        {
+            Message = "Unlink this task's followers before archiving their source.";
+            return;
+        }
         if (MessageBox.Show(
                 $"Archive '{task.Task}'? It will remain in Google Sheet history.",
                 "Archive Task",
@@ -1339,11 +2134,116 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         task.Archived = true;
         await QueueAndTryMutationAsync(CreateMutation(task, TaskMutationTypes.Archive));
-        await RemoveTaskFromWatchListAsync(task.TaskId);
         ClearTaskSelection();
         TasksView.Refresh();
         RebuildTaskSummary();
+        RebuildPriorityItems();
         Message = $"Archived '{task.Task}'. {TaskSyncDisplay}.";
+    }
+
+    private Task OpenPausedManagerAsync()
+    {
+        RebuildPausedTasks();
+        IsPausedManagerOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private Task ClosePausedManagerAsync()
+    {
+        IsPausedManagerOpen = false;
+        return Task.CompletedTask;
+    }
+
+    private Task OpenPauseSelectedTaskAsync()
+    {
+        if (SelectedTask is null) return Task.CompletedTask;
+        _pauseTargetTask = SelectedTask;
+        SavePauseCommand.RaiseCanExecuteChanged();
+        PauseResumeDate = SelectedTask.ResumeDate;
+        OnPropertyChanged(nameof(PauseTargetDisplay));
+        IsPauseEditorOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private async Task SavePauseAsync()
+    {
+        if (_pauseTargetTask is null) return;
+        if (PauseResumeDate?.Date <= DateTime.Today)
+        {
+            Message = "Resume date must be after today, or blank for an indefinite pause.";
+            return;
+        }
+
+        var task = _pauseTargetTask;
+        var activeFollowers = task.LinkedFollowers
+            .Where(follower => !follower.IsEffectivelyPaused)
+            .Select(follower => follower.Task)
+            .ToList();
+        if (activeFollowers.Count > 0)
+        {
+            Message = $"Pause the follower task(s) first: {string.Join(", ", activeFollowers)}.";
+            return;
+        }
+        task.Paused = true;
+        task.ResumeDate = PauseResumeDate?.Date;
+        task.IsExpanded = false;
+        task.NotifyCalculatedFieldsChanged();
+        foreach (var filter in _taskFilters.Where(item => !item.IsSystem))
+        {
+            filter.TaskIds.RemoveAll(id => string.Equals(id, task.TaskId, StringComparison.OrdinalIgnoreCase));
+        }
+        await SaveTaskFiltersLocallyAsync(pending: false);
+        await QueueAndTryMutationAsync(CreateMutation(task, TaskMutationTypes.Pause));
+        IsPauseEditorOpen = false;
+        _pauseTargetTask = null;
+        SavePauseCommand.RaiseCanExecuteChanged();
+        ClearTaskSelection();
+        RefreshActiveViews();
+        Message = $"Paused '{task.Task}'. Its current dates are unchanged.";
+    }
+
+    private Task CancelPauseAsync()
+    {
+        IsPauseEditorOpen = false;
+        _pauseTargetTask = null;
+        SavePauseCommand.RaiseCanExecuteChanged();
+        PauseResumeDate = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task ResumeTaskAsync(SheetTask task)
+    {
+        if (!string.IsNullOrWhiteSpace(task.PredecessorTaskId))
+        {
+            var predecessor = _tasks.FirstOrDefault(item => string.Equals(
+                item.TaskId,
+                task.PredecessorTaskId,
+                StringComparison.OrdinalIgnoreCase));
+            if (predecessor?.IsEffectivelyPaused == true)
+            {
+                Message = $"Resume the main task '{predecessor.Task}' first.";
+                return;
+            }
+        }
+        task.Paused = false;
+        task.ResumeDate = null;
+        task.NotifyCalculatedFieldsChanged();
+        await QueueAndTryMutationAsync(CreateMutation(task, TaskMutationTypes.Resume));
+        RefreshActiveViews();
+        Message = $"Resumed '{task.Task}' with its original dates.";
+    }
+
+    private Task EditPausedTaskAsync(SheetTask task)
+    {
+        IsPausedManagerOpen = false;
+        SelectedTask = task;
+        return EditTaskAsync();
+    }
+
+    private Task EditLinkedTaskAsync(SheetTask task)
+    {
+        SelectedTask = task;
+        return EditTaskAsync();
     }
 
     private Task OpenTaskConflictsAsync()
@@ -1395,11 +2295,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _tasks.Add(CloneTask(conflict.ServerTask));
         }
 
+        var compoundHistory = _completionHistoryRecords.FirstOrDefault(record => string.Equals(
+            record.OperationId,
+            conflict.OperationId,
+            StringComparison.OrdinalIgnoreCase));
+        if (compoundHistory is not null)
+        {
+            foreach (var beforeAffected in compoundHistory.BeforeAffectedTasks)
+            {
+                var affected = _tasks.FirstOrDefault(task => string.Equals(
+                    task.TaskId,
+                    beforeAffected.TaskId,
+                    StringComparison.OrdinalIgnoreCase));
+                if (affected is not null) CopyTask(beforeAffected, affected);
+            }
+            compoundHistory.State = CompletionHistoryStates.Undone;
+            compoundHistory.CanUndo = false;
+            compoundHistory.BeforeTask = null;
+            compoundHistory.BeforeAffectedTasks.Clear();
+        }
+
         _taskSyncQueue.RemoveAll(item => item.TaskId == conflict.TaskId);
         await PersistTaskStateAsync();
+        RefreshTaskRelationships();
+        RebuildPausedTasks();
         RebuildTaskConflicts();
         TasksView.Refresh();
         RebuildTaskSummary();
+        RebuildPriorityItems();
         Message = $"Accepted Google Sheet version. {TaskSyncDisplay}.";
     }
 
@@ -1538,12 +2461,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        var previousMonth = new DateTime(
+            _lastTaskCalculatedFieldsRefreshDate.Year,
+            _lastTaskCalculatedFieldsRefreshDate.Month,
+            1);
+        var currentMonth = new DateTime(today.Year, today.Month, 1);
+        if (_historyMonth == previousMonth)
+        {
+            _historyMonth = currentMonth;
+            OnPropertyChanged(nameof(HistoryMonthDisplay));
+            NextHistoryMonthCommand.RaiseCanExecuteChanged();
+        }
+
         foreach (var task in _tasks)
         {
             task.NotifyCalculatedFieldsChanged();
         }
 
+        RebuildPausedTasks();
+        TasksView.Refresh();
         RebuildTaskSummary();
+        RebuildPriorityItems();
+        RebuildCompletionHistory();
         ApplyTaskSort();
         _lastTaskCalculatedFieldsRefreshDate = today;
     }
@@ -1591,6 +2530,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void ApplyTaskFilters()
     {
         TasksView.Refresh();
+        RefreshTaskExpansionToggle();
+    }
+
+    private List<SheetTask> GetVisibleExpandableTasks() => TasksView
+        .Cast<SheetTask>()
+        .Where(task => task.HasExpandableDetails)
+        .ToList();
+
+    private bool AreAllVisibleTaskDetailsExpanded
+    {
+        get
+        {
+            var expandableTasks = GetVisibleExpandableTasks();
+            return expandableTasks.Count > 0 && expandableTasks.All(task => task.IsExpanded);
+        }
+    }
+
+    private bool CanToggleAllTaskDetails() => GetVisibleExpandableTasks().Count > 0;
+
+    private void RefreshTaskExpansionToggle()
+    {
+        OnPropertyChanged(nameof(ExpandCollapseAllGlyph));
+        OnPropertyChanged(nameof(ExpandCollapseAllToolTip));
+        ToggleAllTaskDetailsCommand.RaiseCanExecuteChanged();
     }
 
     private void ResetFilters(bool resetSortMode)
@@ -1599,11 +2562,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _typeFilter = AllFilter;
         _statusFilter = AllFilter;
         _taskSearchText = string.Empty;
-        if (resetSortMode)
-        {
-            _selectedSortMode = NormalSortMode;
-            OnPropertyChanged(nameof(SelectedSortMode));
-        }
         OnPropertyChanged(nameof(CategoryFilter));
         OnPropertyChanged(nameof(TypeFilter));
         OnPropertyChanged(nameof(StatusFilter));
@@ -1621,15 +2579,131 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         _tasks.ReplaceAll(preparedTasks);
 
+        RefreshTaskRelationships();
+        RebuildPausedTasks();
+
         RefreshTaskSyncState();
         RebuildFilterLists();
         if (rebuildSecondaryViews)
         {
             RebuildTaskSummary();
-            RebuildWatchListItems();
+            RebuildPriorityItems();
+            RebuildCompletionHistory();
             AreSecondaryViewsReady = true;
         }
         ApplyTaskSort();
+        RefreshTaskExpansionToggle();
+    }
+
+    private void RefreshTaskRelationships()
+    {
+        var followersBySource = _tasks
+            .Where(task => !task.Archived && !string.IsNullOrWhiteSpace(task.PredecessorTaskId))
+            .GroupBy(task => task.PredecessorTaskId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.AsEnumerable(), StringComparer.OrdinalIgnoreCase);
+        foreach (var task in _tasks)
+        {
+            task.SetLinkedFollowers(followersBySource.GetValueOrDefault(task.TaskId) ?? []);
+            task.PredecessorTaskName = _tasks.FirstOrDefault(item => string.Equals(
+                item.TaskId,
+                task.PredecessorTaskId,
+                StringComparison.OrdinalIgnoreCase))?.Task ?? string.Empty;
+            task.NotifyCalculatedFieldsChanged();
+        }
+        AssignHierarchyOrder();
+        OnPropertyChanged(nameof(LinkSourceOptions));
+    }
+
+    private void AssignHierarchyOrder()
+    {
+        var byId = _tasks.Where(task => !string.IsNullOrWhiteSpace(task.TaskId))
+            .ToDictionary(task => task.TaskId, StringComparer.OrdinalIgnoreCase);
+        var roots = _tasks.Where(task => string.IsNullOrWhiteSpace(task.PredecessorTaskId)
+                || !byId.ContainsKey(task.PredecessorTaskId))
+            .OrderBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var order = 0;
+        void Visit(SheetTask task, int depth)
+        {
+            if (!visited.Add(task.TaskId)) return;
+            task.HierarchyDepth = depth;
+            task.HierarchyOrder = order++;
+            foreach (var child in task.LinkedFollowers
+                         .OrderBy(item => item.Category, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(item => item.Type, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(item => item.Task, StringComparer.OrdinalIgnoreCase))
+            {
+                Visit(child, depth + 1);
+            }
+        }
+        foreach (var root in roots) Visit(root, 0);
+        foreach (var task in _tasks.Where(task => !visited.Contains(task.TaskId))) Visit(task, 0);
+    }
+
+    private void RebuildPausedTasks()
+    {
+        _pausedTaskItems.Clear();
+        foreach (var task in _tasks
+                     .Where(task => !task.Archived && task.IsEffectivelyPaused)
+                     .OrderBy(task => task.ResumeDate is null ? 1 : 0)
+                     .ThenBy(task => task.ResumeDate)
+                     .ThenBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase))
+        {
+            _pausedTaskItems.Add(task);
+        }
+        OnPropertyChanged(nameof(PausedTaskCount));
+        OnPropertyChanged(nameof(PausedButtonDisplay));
+    }
+
+    private void RefreshActiveViews()
+    {
+        RefreshTaskRelationships();
+        RebuildPausedTasks();
+        RebuildFilterLists();
+        TasksView.Refresh();
+        RefreshTaskExpansionToggle();
+        RebuildTaskSummary();
+        RebuildPriorityItems();
+    }
+
+    private bool ValidateTaskLink(SheetTask task, string? predecessorTaskId, out string error)
+    {
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(predecessorTaskId)) return true;
+        if (string.Equals(task.TaskId, predecessorTaskId, StringComparison.OrdinalIgnoreCase))
+        {
+            error = "A task cannot link to itself.";
+            return false;
+        }
+
+        var source = _tasks.FirstOrDefault(item => string.Equals(item.TaskId, predecessorTaskId, StringComparison.OrdinalIgnoreCase));
+        if (source is null || source.Archived)
+        {
+            error = "The selected linked source is no longer available.";
+            return false;
+        }
+        var current = source;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (!string.IsNullOrWhiteSpace(current.PredecessorTaskId))
+        {
+            if (!visited.Add(current.TaskId)
+                || string.Equals(current.PredecessorTaskId, task.TaskId, StringComparison.OrdinalIgnoreCase))
+            {
+                error = "This main task would create a linked-task cycle.";
+                return false;
+            }
+            current = _tasks.FirstOrDefault(item => string.Equals(
+                item.TaskId,
+                current.PredecessorTaskId,
+                StringComparison.OrdinalIgnoreCase));
+            if (current is null) break;
+        }
+        return true;
     }
 
     private TaskMutation CreateMutation(SheetTask task, string operationType)
@@ -1669,17 +2743,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task ProcessPendingMutationsAsync(string? onlyTaskId = null)
+    private async Task ProcessPendingMutationsAsync(string? onlyTaskId = null, bool includeDelayed = false)
     {
         await _taskSyncGate.WaitAsync();
         try
         {
+            var uploadFailures = new List<string>();
+            var now = DateTimeOffset.Now;
             var taskIds = _taskSyncQueue
                 .Where(item => item.State == TaskMutationStates.Pending
                     && (onlyTaskId is null || item.TaskId == onlyTaskId))
+                .GroupBy(item => item.TaskId, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.OrderBy(item => item.QueuedAt).First())
+                .Where(item => includeDelayed || item.UploadAfter is null || item.UploadAfter <= now)
                 .OrderBy(item => item.QueuedAt)
                 .Select(item => item.TaskId)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             foreach (var taskId in taskIds)
@@ -1687,47 +2765,97 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 while (true)
                 {
                     var mutation = _taskSyncQueue
-                        .Where(item => item.TaskId == taskId && item.State == TaskMutationStates.Pending)
+                        .Where(item => item.TaskId == taskId
+                            && item.State == TaskMutationStates.Pending)
                         .OrderBy(item => item.QueuedAt)
                         .FirstOrDefault();
                     if (mutation is null)
                     {
                         break;
                     }
-
-                    var response = await _sheetClient.SendMutationAsync(_config, mutation, CancellationToken.None);
-                    if (response.Success && response.Task is not null)
+                    if (!includeDelayed && mutation.UploadAfter is not null && mutation.UploadAfter > now)
                     {
-                        var local = _tasks.FirstOrDefault(task => task.TaskId == taskId);
-                        if (local is not null)
-                        {
-                            CopyTask(response.Task, local);
-                        }
-                        _taskSyncQueue.Remove(mutation);
-                        foreach (var next in _taskSyncQueue.Where(item => item.TaskId == taskId && item.State == TaskMutationStates.Pending))
-                        {
-                            next.ExpectedRevision = response.Task.Revision;
-                        }
-                        await PersistTaskStateAsync();
-                        continue;
-                    }
-
-                    if (string.Equals(response.ErrorCode, "REVISION_CONFLICT", StringComparison.OrdinalIgnoreCase))
-                    {
-                        mutation.State = TaskMutationStates.Conflict;
-                        mutation.ServerTask = response.ServerTask;
-                        await PersistTaskStateAsync();
                         break;
                     }
 
-                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(response.Error)
-                        ? $"Google Sheet rejected {mutation.OperationType}."
-                        : response.Error);
+                    try
+                    {
+                        var response = await _sheetClient.SendMutationAsync(_config, mutation, CancellationToken.None);
+                        if (response.Success && response.Task is not null)
+                        {
+                            var local = _tasks.FirstOrDefault(task => task.TaskId == taskId);
+                            if (local is not null)
+                            {
+                                CopyTask(response.Task, local);
+                            }
+                            foreach (var affectedServerTask in response.AffectedTasks)
+                            {
+                                var affectedLocal = _tasks.FirstOrDefault(task => string.Equals(
+                                    task.TaskId,
+                                    affectedServerTask.TaskId,
+                                    StringComparison.OrdinalIgnoreCase));
+                                if (affectedLocal is null)
+                                {
+                                    _tasks.Add(CloneTask(affectedServerTask));
+                                }
+                                else if (!_taskSyncQueue.Any(item => item != mutation
+                                             && string.Equals(item.TaskId, affectedLocal.TaskId, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    CopyTask(affectedServerTask, affectedLocal);
+                                }
+                                else
+                                {
+                                    CopyServerManagedState(affectedServerTask, affectedLocal);
+                                }
+
+                                foreach (var pendingAffected in _taskSyncQueue.Where(item => item != mutation
+                                             && string.Equals(item.TaskId, affectedServerTask.TaskId, StringComparison.OrdinalIgnoreCase)
+                                             && item.State == TaskMutationStates.Pending))
+                                {
+                                    pendingAffected.ExpectedRevision = affectedServerTask.Revision;
+                                }
+                            }
+                            _taskSyncQueue.Remove(mutation);
+                            MarkCompletionHistorySynced(mutation.OperationId);
+                            foreach (var next in _taskSyncQueue.Where(item => item.TaskId == taskId && item.State == TaskMutationStates.Pending))
+                            {
+                                next.ExpectedRevision = response.Task.Revision;
+                            }
+                            await PersistTaskStateAsync();
+                            RefreshTaskRelationships();
+                            RebuildPausedTasks();
+                            continue;
+                        }
+
+                        if (string.Equals(response.ErrorCode, "REVISION_CONFLICT", StringComparison.OrdinalIgnoreCase))
+                        {
+                            mutation.State = TaskMutationStates.Conflict;
+                            mutation.ServerTask = response.ServerTask;
+                            MarkCompletionHistoryConflict(mutation.OperationId);
+                            await PersistTaskStateAsync();
+                            break;
+                        }
+
+                        throw new InvalidOperationException(string.IsNullOrWhiteSpace(response.Error)
+                            ? $"Google Sheet rejected {mutation.OperationType}."
+                            : response.Error);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLogger.Error($"Pending task mutation failed; continuing with other tasks: {taskId}", ex);
+                        uploadFailures.Add($"{mutation.Payload.Task}: {ex.Message}");
+                        break;
+                    }
                 }
             }
 
             RefreshTaskSyncState();
-            RebuildWatchListItems();
+            RebuildPriorityItems();
+            if (uploadFailures.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"{uploadFailures.Count} pending change(s) could not upload. First failure: {uploadFailures[0]}");
+            }
         }
         finally
         {
@@ -1754,6 +2882,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 StringComparer.OrdinalIgnoreCase);
 
         var pendingIds = _taskSyncQueue.Select(item => item.TaskId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var affectedTaskId in _completionHistoryRecords
+                     .Where(record => record.State is CompletionHistoryStates.Pending or CompletionHistoryStates.Conflict)
+                     .SelectMany(record => record.BeforeAffectedTasks)
+                     .Select(task => task.TaskId))
+        {
+            pendingIds.Add(affectedTaskId);
+        }
         var localPending = _tasks.Where(task => pendingIds.Contains(task.TaskId)).ToList();
         var merged = serverById.Values
             .Where(task => !task.Archived && !pendingIds.Contains(task.TaskId))
@@ -1764,39 +2899,53 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ReplaceTasks(merged);
     }
 
+    private void MergeServerCompletionHistory(IEnumerable<CompletionHistoryRecord> serverRecords)
+    {
+        foreach (var serverRecord in serverRecords)
+        {
+            if (string.IsNullOrWhiteSpace(serverRecord.TaskId) || serverRecord.CompletedDate == default) continue;
+
+            var existing = !string.IsNullOrWhiteSpace(serverRecord.OperationId)
+                ? _completionHistoryRecords.FirstOrDefault(record => string.Equals(
+                    record.OperationId,
+                    serverRecord.OperationId,
+                    StringComparison.OrdinalIgnoreCase))
+                : _completionHistoryRecords.FirstOrDefault(record =>
+                    string.Equals(record.TaskId, serverRecord.TaskId, StringComparison.OrdinalIgnoreCase)
+                    && record.CompletedDate.Date == serverRecord.CompletedDate.Date
+                    && string.Equals(record.Remark, serverRecord.Remark, StringComparison.Ordinal));
+            if (existing is not null)
+            {
+                if (existing.State != CompletionHistoryStates.Undone)
+                {
+                    existing.State = CompletionHistoryStates.Synced;
+                    existing.CanUndo = false;
+                    if (!string.IsNullOrWhiteSpace(serverRecord.MinorCompletionSummary))
+                    {
+                        existing.MinorCompletionSummary = serverRecord.MinorCompletionSummary;
+                    }
+                    existing.BeforeTask = null;
+                    existing.BeforeAffectedTasks.Clear();
+                }
+                continue;
+            }
+
+            serverRecord.State = CompletionHistoryStates.Synced;
+            serverRecord.CanUndo = false;
+            serverRecord.BeforeTask = null;
+            _completionHistoryRecords.Add(serverRecord);
+        }
+
+        RebuildCompletionHistory();
+    }
+
     private async Task PersistTaskStateAsync()
     {
         RefreshTaskSyncState();
         await _fileStore.SaveTasksAsync(_tasks);
         await _fileStore.SaveTaskSyncQueueAsync(_taskSyncQueue);
-    }
-
-    private async Task RemoveTaskFromWatchListAsync(string taskId)
-    {
-        var removedCount = _watchListEntries.RemoveAll(entry =>
-            string.Equals(entry.TaskId, taskId, StringComparison.OrdinalIgnoreCase));
-        if (removedCount == 0)
-        {
-            return;
-        }
-
-        await _fileStore.SaveWatchListAsync(_watchListEntries);
-        RebuildWatchListItems();
-    }
-
-    private async Task PruneWatchListAsync()
-    {
-        var activeTaskIds = _tasks
-            .Where(task => !task.Archived && !string.IsNullOrWhiteSpace(task.TaskId))
-            .Select(task => task.TaskId)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var removedCount = _watchListEntries.RemoveAll(entry => !activeTaskIds.Contains(entry.TaskId));
-        if (removedCount > 0)
-        {
-            await _fileStore.SaveWatchListAsync(_watchListEntries);
-        }
-
-        RebuildWatchListItems();
+        await _fileStore.SaveCompletionHistoryAsync(_completionHistoryRecords);
+        RebuildCompletionHistory();
     }
 
     private async Task BuildSecondaryViewsAfterStartupAsync()
@@ -1807,29 +2956,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await Task.Delay(150);
 
             var taskSnapshot = _tasks.ToList();
-            var watchListSnapshot = _watchListEntries
-                .Select(entry => new WatchListEntry
-                {
-                    TaskId = entry.TaskId,
-                    AddedAt = entry.AddedAt
-                })
-                .ToList();
-
             var secondaryData = await Task.Run(() => new SecondaryViewData(
-                BuildWatchListRows(taskSnapshot, watchListSnapshot),
+                BuildPriorityRows(taskSnapshot, DateTime.Today),
                 BuildTaskSummaryRows(taskSnapshot, DateTime.Today)));
 
             // A sync or edit may have replaced the task set while the snapshot was building.
             if (taskSnapshot.Count != _tasks.Count
                 || !taskSnapshot.SequenceEqual(_tasks))
             {
-                RebuildWatchListItems();
+                RebuildPriorityItems();
                 RebuildTaskSummary();
+                RebuildCompletionHistory();
             }
             else
             {
-                ApplyWatchListRows(secondaryData.WatchListRows);
+                ApplyPriorityRows(secondaryData.PriorityRows);
                 ApplyTaskSummaryRows(secondaryData.SummaryRows);
+                RebuildCompletionHistory();
             }
 
             AreSecondaryViewsReady = true;
@@ -1841,48 +2984,260 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void RebuildWatchListItems()
+    private void RebuildCompletionHistory()
     {
-        ApplyWatchListRows(BuildWatchListRows(_tasks, _watchListEntries));
-    }
-
-    private static List<WatchListItem> BuildWatchListRows(
-        IEnumerable<SheetTask> tasks,
-        IEnumerable<WatchListEntry> watchListEntries)
-    {
-        var taskById = tasks
-            .Where(task => !task.Archived && !string.IsNullOrWhiteSpace(task.TaskId))
-            .GroupBy(task => task.TaskId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-
-        return watchListEntries
-            .Where(entry => taskById.ContainsKey(entry.TaskId))
-            .Select(entry => new WatchListItem(taskById[entry.TaskId], entry.AddedAt))
-            .OrderBy(item => item.Category, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.Type, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.Task, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.AddedAt)
-            .ToList();
-    }
-
-    private void ApplyWatchListRows(IEnumerable<WatchListItem> rows)
-    {
-        var selectedTaskId = SelectedWatchListItem?.TaskId;
-
-        _watchListItems.Clear();
-        foreach (var row in rows)
+        foreach (var record in _completionHistoryRecords)
         {
-            _watchListItems.Add(row);
+            record.CanUndo = CanUndoCompletion(record);
         }
 
-        SelectedWatchListItem = selectedTaskId is null
+        UpdateMonthlyHistoryCounts();
+
+        var monthEnd = _historyMonth.AddMonths(1);
+
+        ApplyCompletionHistoryRows(_completionHistoryRecords
+            .Where(record => record.CompletedDate.Date >= _historyMonth && record.CompletedDate.Date < monthEnd)
+            .OrderByDescending(record => record.RecordedAt)
+            .ThenByDescending(record => record.CompletedDate));
+    }
+
+    private void UpdateMonthlyHistoryCounts()
+    {
+        var currentMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        var monthEnd = currentMonth.AddMonths(1);
+        var counts = _completionHistoryRecords
+            .Where(record => record.State != CompletionHistoryStates.Undone
+                && record.CompletedDate.Date >= currentMonth
+                && record.CompletedDate.Date < monthEnd
+                && !string.IsNullOrWhiteSpace(record.TaskId))
+            .GroupBy(record => record.TaskId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var task in _tasks)
+        {
+            task.SetMonthlyHistoryCount(counts.GetValueOrDefault(task.TaskId));
+        }
+    }
+
+    private void ApplyCompletionHistoryRows(IEnumerable<CompletionHistoryRecord> rows)
+    {
+        _completionHistoryItems.Clear();
+        foreach (var row in rows)
+        {
+            _completionHistoryItems.Add(row);
+        }
+
+        OnPropertyChanged(nameof(HistoryViewDisplay));
+        OnPropertyChanged(nameof(HasCompletionHistoryItems));
+        UndoCompletionCommand.RaiseCanExecuteChanged();
+    }
+
+    private void RebuildPriorityItems()
+    {
+        ApplyPriorityRows(BuildPriorityRows(_tasks, DateTime.Today));
+    }
+
+    private static PriorityRows BuildPriorityRows(IEnumerable<SheetTask> tasks, DateTime today)
+    {
+        var active = tasks.Where(task => IsActiveViewTask(task) && !task.Completed && !IsTaskSnoozedForToday(task)).ToList();
+        var expired = active
+            .Where(task => task.ExpiredDate?.Date <= today)
+            .OrderByDescending(task => task.Level)
+            .ThenBy(task => task.DayLeft)
+            .ThenBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var warning = active
+            .Where(task => task.ExpiredDate?.Date > today && task.WarningDate?.Date <= today)
+            .OrderByDescending(task => task.Level)
+            .ThenBy(task => task.DayLeft)
+            .ThenBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return new PriorityRows(expired, warning);
+    }
+
+    private void ApplyPriorityRows(PriorityRows rows)
+    {
+        var selectedTaskId = SelectedPriorityTask?.TaskId;
+        _expiredPriorityItems.Clear();
+        foreach (var task in rows.Expired) _expiredPriorityItems.Add(task);
+        _warningPriorityItems.Clear();
+        foreach (var task in rows.Warning) _warningPriorityItems.Add(task);
+        var refreshedExpired = selectedTaskId is null
             ? null
-            : _watchListItems.FirstOrDefault(item =>
-                string.Equals(item.TaskId, selectedTaskId, StringComparison.OrdinalIgnoreCase));
-        OnPropertyChanged(nameof(WatchListDisplay));
-        OnPropertyChanged(nameof(IsSelectedTaskWatched));
-        OnPropertyChanged(nameof(WatchListActionDisplay));
-        RefreshCommands();
+            : _expiredPriorityItems.FirstOrDefault(task => string.Equals(task.TaskId, selectedTaskId, StringComparison.OrdinalIgnoreCase));
+        var refreshedWarning = selectedTaskId is null
+            ? null
+            : _warningPriorityItems.FirstOrDefault(task => string.Equals(task.TaskId, selectedTaskId, StringComparison.OrdinalIgnoreCase));
+        _selectedExpiredPriorityTask = refreshedExpired;
+        _selectedWarningPriorityTask = refreshedWarning;
+        OnPropertyChanged(nameof(SelectedExpiredPriorityTask));
+        OnPropertyChanged(nameof(SelectedWarningPriorityTask));
+        SelectedPriorityTask = refreshedExpired ?? refreshedWarning;
+        OnPropertyChanged(nameof(PriorityViewDisplay));
+        OnPropertyChanged(nameof(HasExpiredPriorityItems));
+        OnPropertyChanged(nameof(HasWarningPriorityItems));
+    }
+
+    private bool CanUndoCompletion(CompletionHistoryRecord record)
+    {
+        if (record.State != CompletionHistoryStates.Pending || record.BeforeTask is null)
+        {
+            return false;
+        }
+
+        var mutation = _taskSyncQueue.FirstOrDefault(item =>
+            item.OperationId == record.OperationId
+            && item.OperationType == TaskMutationTypes.Complete
+            && item.State == TaskMutationStates.Pending);
+        if (mutation is null)
+        {
+            return false;
+        }
+
+        var affectedTaskIds = record.BeforeAffectedTasks
+            .Select(item => item.TaskId)
+            .Append(mutation.TaskId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return !_taskSyncQueue.Any(item =>
+            affectedTaskIds.Contains(item.TaskId)
+            && item.QueuedAt > mutation.QueuedAt);
+    }
+
+    private async Task UndoCompletionAsync(CompletionHistoryRecord record)
+    {
+        var confirmation = MessageBox.Show(
+            $"Undo this unsynced completion?\n\n{record.Category} / {record.Type} / {record.Task}\n{record.CompletedDate:dd MMM yyyy}",
+            "Confirm Undo Completion",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        await _taskSyncGate.WaitAsync();
+        try
+        {
+            if (!CanUndoCompletion(record) || record.BeforeTask is null)
+            {
+                Message = "Undo is no longer available because this completion synced or the task changed afterward.";
+                RebuildCompletionHistory();
+                return;
+            }
+
+            var mutation = _taskSyncQueue.First(item => item.OperationId == record.OperationId);
+            var task = _tasks.FirstOrDefault(item =>
+                string.Equals(item.TaskId, record.TaskId, StringComparison.OrdinalIgnoreCase));
+            if (task is null)
+            {
+                Message = "Undo could not restore the task because it is missing from the local cache.";
+                return;
+            }
+
+            CopyTask(record.BeforeTask, task);
+            foreach (var beforeAffected in record.BeforeAffectedTasks)
+            {
+                var affected = _tasks.FirstOrDefault(item => string.Equals(
+                    item.TaskId,
+                    beforeAffected.TaskId,
+                    StringComparison.OrdinalIgnoreCase));
+                if (affected is not null)
+                {
+                    CopyTask(beforeAffected, affected);
+                }
+            }
+            _taskSyncQueue.Remove(mutation);
+            record.State = CompletionHistoryStates.Undone;
+            record.CanUndo = false;
+            await PersistTaskStateAsync();
+            RebuildFilterLists();
+            RebuildTaskSummary();
+            RebuildPriorityItems();
+            RefreshTaskRelationships();
+            RebuildPausedTasks();
+            TasksView.Refresh();
+            Message = $"Undid completion for '{record.Task}'.";
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"Failed to undo completion {record.RecordId}", ex);
+            Message = $"Undo failed: {ex.Message}. Log: {AppPaths.CurrentWarningErrorLogPath}";
+        }
+        finally
+        {
+            _taskSyncGate.Release();
+        }
+    }
+
+    private void MarkCompletionHistorySynced(string operationId)
+    {
+        var record = _completionHistoryRecords.FirstOrDefault(item => item.OperationId == operationId);
+        if (record is null)
+        {
+            return;
+        }
+
+        record.State = CompletionHistoryStates.Synced;
+        record.CanUndo = false;
+        record.BeforeTask = null;
+        record.BeforeAffectedTasks.Clear();
+    }
+
+    private void MarkCompletionHistoryConflict(string operationId)
+    {
+        var record = _completionHistoryRecords.FirstOrDefault(item => item.OperationId == operationId);
+        if (record is null) return;
+        record.State = CompletionHistoryStates.Conflict;
+        record.CanUndo = false;
+    }
+
+    private void SeedLegacyCompletionHistory(IEnumerable<SheetTask> tasks)
+    {
+        foreach (var task in tasks
+            .Where(item => item.GridLastExecutedDate is not null)
+            .OrderByDescending(item => item.GridLastExecutedDate)
+            .Take(10))
+        {
+            var completedDate = task.GridLastExecutedDate!.Value;
+            _completionHistoryRecords.Add(new CompletionHistoryRecord
+            {
+                TaskId = task.TaskId,
+                CompletedDate = completedDate.Date,
+                RecordedAt = new DateTimeOffset(completedDate),
+                Category = task.Category,
+                Type = task.Type,
+                Task = task.Task,
+                Remark = task.Remark,
+                State = CompletionHistoryStates.Synced
+            });
+        }
+    }
+
+    private async void CompletionUploadTimer_Tick(object? sender, EventArgs e)
+    {
+        var dueTaskIds = _taskSyncQueue
+            .Where(item => item.OperationType == TaskMutationTypes.Complete
+                && item.State == TaskMutationStates.Pending
+                && item.UploadAfter is not null
+                && item.UploadAfter <= DateTimeOffset.Now)
+            .Select(item => item.TaskId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var taskId in dueTaskIds)
+        {
+            try
+            {
+                await ProcessPendingMutationsAsync(taskId);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"Scheduled completion upload failed for task {taskId}", ex);
+            }
+        }
     }
 
     private void RefreshTaskSyncState()
@@ -1891,7 +3246,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             task.SyncState = _taskSyncQueue.Any(item => item.TaskId == task.TaskId && item.State == TaskMutationStates.Conflict)
                 ? TaskSyncStates.Conflict
-                : _taskSyncQueue.Any(item => item.TaskId == task.TaskId)
+                : _taskSyncQueue.Any(item => item.TaskId == task.TaskId) || IsTaskWaitingOnCompound(task)
                     ? TaskSyncStates.Pending
                     : TaskSyncStates.Synced;
         }
@@ -1922,12 +3277,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return task;
     }
 
+    private static void CopyServerManagedState(SheetTask source, SheetTask target)
+    {
+        target.Revision = source.Revision;
+        target.UpdatedAt = source.UpdatedAt;
+        target.ExpiredDate = source.ExpiredDate;
+        target.WarningDate = source.WarningDate;
+        target.PredecessorTaskId = source.PredecessorTaskId;
+        target.IsLinkedUnlocked = source.IsLinkedUnlocked;
+        target.LinkedActivationDate = source.LinkedActivationDate;
+        target.Paused = source.Paused;
+        target.ResumeDate = source.ResumeDate;
+        target.LastLifeSyncOperationId = source.LastLifeSyncOperationId;
+        target.NotifyCalculatedFieldsChanged();
+    }
+
     private static void CopyTask(SheetTask source, SheetTask target)
     {
         target.TaskId = source.TaskId;
         target.Revision = source.Revision;
         target.UpdatedAt = source.UpdatedAt;
         target.Archived = source.Archived;
+        target.Level = source.Level is >= 1 and <= 5 ? source.Level : 1;
         target.Category = source.Category;
         target.Type = source.Type;
         target.Task = source.Task;
@@ -1951,8 +3322,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
         target.LastGoogleTaskId = source.LastGoogleTaskId;
         target.LastGoogleTaskCreatedDate = source.LastGoogleTaskCreatedDate;
         target.LastLifeSyncOperationId = source.LastLifeSyncOperationId;
+        target.PredecessorTaskId = source.PredecessorTaskId;
+        target.IsLinkedUnlocked = source.IsLinkedUnlocked;
+        target.LinkedActivationDate = source.LinkedActivationDate;
+        target.Paused = source.Paused;
+        target.ResumeDate = source.ResumeDate;
+        target.MinorTasks = source.MinorTasks.Select(CloneMinorTask).ToList();
         target.NotifyCalculatedFieldsChanged();
     }
+
+    private static MinorTask CloneMinorTask(MinorTask source) => new()
+    {
+        MinorTaskId = source.MinorTaskId,
+        ParentTaskId = source.ParentTaskId,
+        Name = source.Name,
+        IntervalValue = source.IntervalValue,
+        IntervalUnit = source.IntervalUnit,
+        LatestCompletionDate = source.LatestCompletionDate,
+        DueDate = source.DueDate,
+        Order = source.Order,
+        Archived = source.Archived
+    };
 
     private static DateTime AddTaskInterval(DateTime date, int value, string unit)
     {
@@ -1965,6 +3355,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         };
     }
 
+    private static void RestoreMissingLinkedDates(SheetTask task)
+    {
+        if (task.GridLastExecutedDate is not DateTime anchor) return;
+        if (task.ExpiredDate is null && task.ExpiredValue > 0)
+        {
+            task.ExpiredDate = AddTaskInterval(anchor.Date, task.ExpiredValue, task.ExpiredUnit);
+        }
+        if (task.WarningDate is null && task.WarningValue >= 0)
+        {
+            task.WarningDate = AddTaskInterval(anchor.Date, task.WarningValue, task.WarningUnit);
+        }
+    }
+
     private void RebuildTaskSummary()
     {
         ApplyTaskSummaryRows(BuildTaskSummaryRows(_tasks, DateTime.Today));
@@ -1973,7 +3376,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static TaskSummaryRows BuildTaskSummaryRows(IEnumerable<SheetTask> tasks, DateTime today)
     {
         var availableTasks = tasks
-            .Where(task => !task.Completed && !task.Archived)
+            .Where(task => IsActiveViewTask(task) && !task.Completed && task.Alert)
             .ToList();
         var activeTasks = availableTasks.Where(task => !IsTaskSnoozedForToday(task)).ToList();
 
@@ -2054,8 +3457,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         List<TaskSummaryItem> Snoozed);
 
     private sealed record SecondaryViewData(
-        List<WatchListItem> WatchListRows,
+        PriorityRows PriorityRows,
         TaskSummaryRows SummaryRows);
+
+    private sealed record PriorityRows(
+        List<SheetTask> Expired,
+        List<SheetTask> Warning);
 
     private static bool IsTaskSnoozedForToday(SheetTask task)
     {
@@ -2069,26 +3476,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
             && string.Equals(item.TaskId, task.TaskId, StringComparison.OrdinalIgnoreCase));
     }
 
+    private bool CanManageTask(SheetTask task)
+    {
+        return !task.Archived && !IsTaskInConflict(task) && !IsTaskWaitingOnCompound(task);
+    }
+
+    private bool IsTaskWaitingOnCompound(SheetTask task)
+    {
+        return _completionHistoryRecords.Any(record =>
+            record.State == CompletionHistoryStates.Pending
+            && record.BeforeAffectedTasks.Any(before => string.Equals(
+                before.TaskId,
+                task.TaskId,
+                StringComparison.OrdinalIgnoreCase)));
+    }
+
     private void ApplyTaskSort()
     {
         using (TasksView.DeferRefresh())
         {
             TasksView.SortDescriptions.Clear();
-            if (_selectedSortMode == PrioritySortMode)
-            {
-                TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.PriorityRank), ListSortDirection.Ascending));
-            }
-
-            TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.Category), ListSortDirection.Ascending));
-            TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.Type), ListSortDirection.Ascending));
-            TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.Task), ListSortDirection.Ascending));
+            TasksView.SortDescriptions.Add(new SortDescription(nameof(SheetTask.HierarchyOrder), ListSortDirection.Ascending));
         }
     }
 
     private void RebuildFilterLists()
     {
-        Categories = BuildFilterList(_tasks.Select(task => task.Category));
-        Types = BuildFilterList(_tasks.Select(task => task.Type));
+        var visibleTasks = _tasks.Where(IsTaskInSavedFilter).ToList();
+        Categories = BuildFilterList(visibleTasks.Select(task => task.Category));
+        Types = BuildFilterList(visibleTasks.Select(task => task.Type));
         RestoreDynamicFilterSelections();
     }
 
@@ -2124,17 +3540,42 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
-        return !task.Archived
-            && Matches(_categoryFilter, task.Category)
-            && Matches(_typeFilter, task.Type)
-            && MatchesStatus(_statusFilter, task)
-            && (string.IsNullOrWhiteSpace(_taskSearchText)
-                || task.Task.Contains(_taskSearchText.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (!IsTaskInSavedFilter(task)) return false;
+        if ((SelectedSavedFilter?.FilterId ?? TaskFilterIds.Default) == TaskFilterIds.Default)
+        {
+            return MatchesConventionalTaskFilters(task);
+        }
+        var root = FindRootTask(task);
+        return new[] { root }.Concat(GetDescendants(root.TaskId))
+            .Any(item => IsTaskInSavedFilter(item) && MatchesConventionalTaskFilters(item));
+    }
+
+    private bool MatchesConventionalTaskFilters(SheetTask task) =>
+        Matches(_categoryFilter, task.Category)
+        && Matches(_typeFilter, task.Type)
+        && MatchesStatus(_statusFilter, task)
+        && (string.IsNullOrWhiteSpace(_taskSearchText)
+            || task.Task.Contains(_taskSearchText.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private bool IsTaskInSavedFilter(SheetTask task)
+    {
+        if (task.Archived) return false;
+        var filterId = SelectedSavedFilter?.FilterId ?? TaskFilterIds.Default;
+        if (filterId == TaskFilterIds.All) return true;
+        if (filterId == TaskFilterIds.Default) return IsActiveViewTask(task);
+        return !task.IsEffectivelyPaused
+            && !task.IsLinkedLocked
+            && SelectedSavedFilter!.TaskIds.Contains(task.TaskId, StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool Matches(string filter, string value)
     {
         return filter == AllFilter || string.Equals(filter, value, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsActiveViewTask(SheetTask task)
+    {
+        return !task.Archived && !task.IsEffectivelyPaused && !task.IsLinkedLocked;
     }
 
     private static bool MatchesStatus(string filter, SheetTask task)
@@ -2179,31 +3620,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return SelectedTask is not null
             && !SelectedTask.Archived
+            && !SelectedTask.IsEffectivelyPaused
+            && !SelectedTask.IsLinkedLocked
             && !IsTaskInConflict(SelectedTask)
+            && !IsTaskWaitingOnCompound(SelectedTask)
             && !string.IsNullOrWhiteSpace(SelectedTask.TaskId);
     }
 
     private bool CanEditSelectedTask()
     {
-        return CanMutateSelectedTask();
+        return SelectedTask is not null
+            && !SelectedTask.Archived
+            && !IsTaskInConflict(SelectedTask)
+            && !IsTaskWaitingOnCompound(SelectedTask)
+            && !string.IsNullOrWhiteSpace(SelectedTask.TaskId);
     }
+
+    private bool CanPauseSelectedTask()
+    {
+        return CanEditSelectedTask() && SelectedTask?.IsEffectivelyPaused == false;
+    }
+
+    private bool HasPauseTargetTask() => _pauseTargetTask is not null;
 
     private bool CanOpenSelectedTaskSidebar()
     {
         return SelectedTask is not null && !SelectedTask.Archived;
     }
 
-    private bool CanToggleSelectedTaskWatch()
-    {
-        return SelectedTask is not null
-            && !SelectedTask.Archived
-            && !string.IsNullOrWhiteSpace(SelectedTask.TaskId);
-    }
-
-    private bool HasSelectedWatchListItem()
-    {
-        return SelectedWatchListItem is not null;
-    }
+    private bool HasSelectedPriorityTask() => SelectedPriorityTask is not null;
 
     private bool HasTaskConflicts()
     {
@@ -2225,6 +3670,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return SelectedTaskSummaryItem?.TaskItem.Completed == false
             && !SelectedTaskSummaryItem.TaskItem.Archived
             && !IsTaskInConflict(SelectedTaskSummaryItem.TaskItem)
+            && !IsTaskWaitingOnCompound(SelectedTaskSummaryItem.TaskItem)
             && !string.IsNullOrWhiteSpace(SelectedTaskSummaryItem.TaskItem.TaskId);
     }
 
@@ -2237,6 +3683,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         return SelectedTaskSummaryItem?.TaskItem.SnoozeUntil is not null
             && !IsTaskInConflict(SelectedTaskSummaryItem.TaskItem)
+            && !IsTaskWaitingOnCompound(SelectedTaskSummaryItem.TaskItem)
             && !string.IsNullOrWhiteSpace(SelectedTaskSummaryItem.TaskItem.TaskId);
     }
 
@@ -2260,6 +3707,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OpenSelectedTaskSidebarCommand.RaiseCanExecuteChanged();
         EditTaskCommand.RaiseCanExecuteChanged();
         ArchiveTaskCommand.RaiseCanExecuteChanged();
+        PauseSelectedTaskCommand.RaiseCanExecuteChanged();
+        SavePauseCommand.RaiseCanExecuteChanged();
+        ResumeTaskCommand.RaiseCanExecuteChanged();
+        EditPausedTaskCommand.RaiseCanExecuteChanged();
+        EditLinkedTaskCommand.RaiseCanExecuteChanged();
         OpenTaskConflictsCommand.RaiseCanExecuteChanged();
         KeepPcTaskConflictCommand.RaiseCanExecuteChanged();
         UseSheetTaskConflictCommand.RaiseCanExecuteChanged();
@@ -2271,8 +3723,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SnoozeTaskSummary30DaysCommand.RaiseCanExecuteChanged();
         SnoozeTaskSummaryCustomCommand.RaiseCanExecuteChanged();
         ClearTaskSummarySnoozeCommand.RaiseCanExecuteChanged();
-        ToggleSelectedTaskWatchCommand.RaiseCanExecuteChanged();
-        OpenSelectedWatchTaskCommand.RaiseCanExecuteChanged();
+        ToggleAllTaskDetailsCommand.RaiseCanExecuteChanged();
+        OpenPriorityDetailCommand.RaiseCanExecuteChanged();
+        UndoCompletionCommand.RaiseCanExecuteChanged();
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -2285,33 +3738,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 public enum MainViewKind
 {
     Tasks,
-    WatchList,
-    DailySummary
-}
-
-public sealed class WatchListItem
-{
-    public WatchListItem(SheetTask taskItem, DateTimeOffset addedAt)
-    {
-        TaskItem = taskItem;
-        AddedAt = addedAt;
-    }
-
-    public SheetTask TaskItem { get; }
-
-    public string TaskId => TaskItem.TaskId;
-
-    public string Category => TaskItem.Category;
-
-    public string Type => TaskItem.Type;
-
-    public string Task => TaskItem.Task;
-
-    public int? DayLeft => TaskItem.DayLeft;
-
-    public DateTimeOffset AddedAt { get; }
-
-    public DateTime DateAdded => AddedAt.LocalDateTime.Date;
+    Priority,
+    DailySummary,
+    History
 }
 
 public sealed class TaskSummaryItem

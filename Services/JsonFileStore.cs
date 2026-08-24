@@ -49,6 +49,49 @@ public sealed class JsonFileStore
         await JsonSerializer.SerializeAsync(stream, mutations, SerializerOptions);
     }
 
+    public async Task<TaskFilterState> LoadTaskFiltersAsync()
+    {
+        if (!File.Exists(AppPaths.TaskFiltersPath)) return new TaskFilterState();
+        await using var stream = File.OpenRead(AppPaths.TaskFiltersPath);
+        return await JsonSerializer.DeserializeAsync<TaskFilterState>(stream, SerializerOptions) ?? new TaskFilterState();
+    }
+
+    public async Task SaveTaskFiltersAsync(TaskFilterState state)
+    {
+        Directory.CreateDirectory(AppPaths.DataDirectory);
+        var temporaryPath = AppPaths.TaskFiltersPath + ".tmp";
+        await using (var stream = File.Create(temporaryPath))
+        {
+            await JsonSerializer.SerializeAsync(stream, state, SerializerOptions);
+            await stream.FlushAsync();
+        }
+        File.Move(temporaryPath, AppPaths.TaskFiltersPath, true);
+    }
+
+    public async Task<List<CompletionHistoryRecord>> LoadCompletionHistoryAsync()
+    {
+        if (!File.Exists(AppPaths.CompletionHistoryPath))
+        {
+            return [];
+        }
+
+        await using var stream = File.OpenRead(AppPaths.CompletionHistoryPath);
+        return await JsonSerializer.DeserializeAsync<List<CompletionHistoryRecord>>(stream, SerializerOptions) ?? [];
+    }
+
+    public async Task SaveCompletionHistoryAsync(IEnumerable<CompletionHistoryRecord> records)
+    {
+        Directory.CreateDirectory(AppPaths.DataDirectory);
+        var temporaryPath = AppPaths.CompletionHistoryPath + ".tmp";
+        await using (var stream = File.Create(temporaryPath))
+        {
+            await JsonSerializer.SerializeAsync(stream, records, SerializerOptions);
+            await stream.FlushAsync();
+        }
+
+        File.Move(temporaryPath, AppPaths.CompletionHistoryPath, true);
+    }
+
     public async Task<List<WatchListEntry>> LoadWatchListAsync()
     {
         if (!File.Exists(AppPaths.WatchListPath))

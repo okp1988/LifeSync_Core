@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections.ObjectModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -12,6 +13,8 @@ public static class TaskMutationTypes
     public const string Snooze = "snooze";
     public const string ClearSnooze = "clearSnooze";
     public const string Archive = "archive";
+    public const string Pause = "pause";
+    public const string Resume = "resume";
 }
 
 public static class TaskMutationStates
@@ -27,6 +30,7 @@ public sealed class TaskMutation
     public string OperationType { get; set; } = string.Empty;
     public int ExpectedRevision { get; set; }
     public DateTime QueuedAt { get; set; } = DateTime.Now;
+    public DateTimeOffset? UploadAfter { get; set; }
     public string State { get; set; } = TaskMutationStates.Pending;
     public TaskMutationPayload Payload { get; set; } = new();
     public SheetTask? ServerTask { get; set; }
@@ -34,6 +38,8 @@ public sealed class TaskMutation
 
 public sealed class TaskMutationPayload
 {
+    [JsonPropertyName("level")]
+    public int Level { get; set; } = 1;
     [JsonPropertyName("category")]
     public string Category { get; set; } = string.Empty;
     [JsonPropertyName("type")]
@@ -62,11 +68,28 @@ public sealed class TaskMutationPayload
     public DateTime? SnoozeUntil { get; set; }
     [JsonPropertyName("snoozeNote")]
     public string SnoozeNote { get; set; } = string.Empty;
+    [JsonPropertyName("predecessorTaskId")]
+    public string PredecessorTaskId { get; set; } = string.Empty;
+    [JsonPropertyName("isLinkedUnlocked")]
+    public bool IsLinkedUnlocked { get; set; } = true;
+    [JsonPropertyName("linkedActivationDate")]
+    [JsonConverter(typeof(DateOnlyStringJsonConverter))]
+    public DateTime? LinkedActivationDate { get; set; }
+    [JsonPropertyName("paused")]
+    public bool Paused { get; set; }
+    [JsonPropertyName("resumeDate")]
+    [JsonConverter(typeof(DateOnlyStringJsonConverter))]
+    public DateTime? ResumeDate { get; set; }
+    [JsonPropertyName("minorTasks")]
+    public List<MinorTask> MinorTasks { get; set; } = [];
+    [JsonPropertyName("minorCompletions")]
+    public List<MinorTaskCompletionPayload> MinorCompletions { get; set; } = [];
 
     public static TaskMutationPayload FromTask(SheetTask task)
     {
         return new TaskMutationPayload
         {
+            Level = task.Level,
             Category = task.Category,
             Type = task.Type,
             Task = task.Task,
@@ -75,9 +98,28 @@ public sealed class TaskMutationPayload
             WarningValue = task.WarningValue,
             WarningUnit = task.WarningUnit,
             Alert = task.Alert,
-            History = task.History
+            History = task.History,
+            PredecessorTaskId = task.PredecessorTaskId,
+            IsLinkedUnlocked = task.IsLinkedUnlocked,
+            LinkedActivationDate = task.LinkedActivationDate,
+            Paused = task.Paused,
+            ResumeDate = task.ResumeDate,
+            MinorTasks = task.MinorTasks.Select(CloneMinorTask).ToList()
         };
     }
+
+    private static MinorTask CloneMinorTask(MinorTask source) => new()
+    {
+        MinorTaskId = source.MinorTaskId,
+        ParentTaskId = source.ParentTaskId,
+        Name = source.Name,
+        IntervalValue = source.IntervalValue,
+        IntervalUnit = source.IntervalUnit,
+        LatestCompletionDate = source.LatestCompletionDate,
+        DueDate = source.DueDate,
+        Order = source.Order,
+        Archived = source.Archived
+    };
 }
 
 public sealed class TaskApiResponse
@@ -87,6 +129,7 @@ public sealed class TaskApiResponse
     public string Error { get; set; } = string.Empty;
     public SheetTask? Task { get; set; }
     public SheetTask? ServerTask { get; set; }
+    public List<SheetTask> AffectedTasks { get; set; } = [];
 }
 
 public sealed class TaskFetchResponse
@@ -95,11 +138,14 @@ public sealed class TaskFetchResponse
     public string Error { get; set; } = string.Empty;
     public DateTime? ServerTime { get; set; }
     public List<SheetTask> Tasks { get; set; } = [];
+    public List<CompletionHistoryRecord> HistoryRecords { get; set; } = [];
+    public List<TaskFilterDefinition> Filters { get; set; } = [];
 }
 
 public sealed class TaskEditDraft
 {
     public string TaskId { get; set; } = string.Empty;
+    public int Level { get; set; } = 1;
     public string Category { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
     public string Task { get; set; } = string.Empty;
@@ -109,6 +155,8 @@ public sealed class TaskEditDraft
     public string WarningUnit { get; set; } = "Month";
     public bool Alert { get; set; } = true;
     public bool History { get; set; } = true;
+    public string PredecessorTaskId { get; set; } = string.Empty;
+    public ObservableCollection<MinorTask> MinorTasks { get; set; } = [];
 }
 
 public sealed class DateOnlyStringJsonConverter : JsonConverter<DateTime?>

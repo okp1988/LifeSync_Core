@@ -3,12 +3,14 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using LifeSyncTaskClient.Models;
 using LifeSyncTaskClient.ViewModels;
 
 namespace LifeSyncTaskClient;
 
 public partial class MainWindow : Window
 {
+    private const double CompactTasksGridWidth = 1120;
     private readonly MainViewModel _viewModel = new();
 
     public MainWindow()
@@ -19,7 +21,27 @@ public partial class MainWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        UpdateTasksGridResponsiveColumns(ActualWidth);
         await _viewModel.InitializeAsync();
+    }
+
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateTasksGridResponsiveColumns(e.NewSize.Width);
+    }
+
+    private void UpdateTasksGridResponsiveColumns(double windowWidth)
+    {
+        var isCompact = windowWidth < CompactTasksGridWidth;
+        var detailColumnVisibility = isCompact
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        LastExecutedDateColumn.Visibility = detailColumnVisibility;
+        RemarkColumn.Visibility = detailColumnVisibility;
+        TaskNameColumn.Width = isCompact
+            ? new DataGridLength(1, DataGridLengthUnitType.Star)
+            : new DataGridLength(205);
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -92,15 +114,38 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void WatchListGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    private void TasksGrid_LoadingRow(object sender, DataGridRowEventArgs e)
     {
-        if (FindAncestor<DataGridRow>((DependencyObject)e.OriginalSource) is null
-            || !_viewModel.OpenSelectedWatchTaskCommand.CanExecute(null))
+        e.Row.DetailsVisibility = e.Row.Item is SheetTask { IsExpanded: true }
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void TaskExpander_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton toggle || toggle.DataContext is not SheetTask task)
         {
             return;
         }
 
-        _viewModel.OpenSelectedWatchTaskCommand.Execute(null);
+        task.IsExpanded = toggle.IsChecked == true;
+        if (FindAncestor<DataGridRow>(toggle) is { } row)
+        {
+            row.DetailsVisibility = task.IsExpanded ? Visibility.Visible : Visibility.Collapsed;
+        }
+        _viewModel.NotifyTaskExpansionChanged();
+        e.Handled = true;
+    }
+
+    private void PriorityGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (FindAncestor<DataGridRow>((DependencyObject)e.OriginalSource) is null
+            || !_viewModel.OpenPriorityDetailCommand.CanExecute(null))
+        {
+            return;
+        }
+
+        _viewModel.OpenPriorityDetailCommand.Execute(null);
         e.Handled = true;
     }
 

@@ -5,27 +5,27 @@ function checkExpiredAndCreateGoogleTask() {
     const context = taskContext_();
     requireHeaders_(context, Object.values(HEADERS));
     const today = parseDate_(new Date());
-    const todayKey = dateText_(today).replaceAll('-', '');
 
     for (let row = 2; row <= context.sheet.getLastRow(); row++) {
       const task = taskFromRow_(context, row);
-      if (!task.taskId || !task.category || !task.task || task.archived || !task.alert) continue;
+      const resumeDate = parseDate_(task.resumeDate);
+      const effectivelyPaused = task.paused && (!resumeDate || resumeDate > today);
+      if (!task.taskId || !task.category || !task.task || task.archived || !task.alert
+          || effectivelyPaused || (task.predecessorTaskId && !task.isLinkedUnlocked)) continue;
       const warning = parseDate_(task.warningDate);
       const expired = parseDate_(task.expiredDate);
       if (!warning || !expired) continue;
       const snoozeUntil = parseDate_(task.snoozeUntil);
-      if (snoozeUntil && snoozeUntil >= today) continue;
 
-      const stage = reminderStage_(today, warning, expired);
+      const stage = reminderStage_(today, warning, expired, snoozeUntil);
       if (!stage) continue;
       const cycleKey = dateText_(expired).replaceAll('-', '');
       const reminderKey = `${task.taskId}|${cycleKey}|${stage.key}`;
       if (task.lastGoogleTaskKey === reminderKey) continue;
 
-      const dueDate = stage.kind === 'warning' ? warning : stage.kind === 'expired' ? expired : today;
       const created = Task_Tracker_Push.Tasks.insert({
         title: `${stage.title}: ${task.task}`,
-        due: toTasksDueISO_(dueDate),
+        due: toTasksDueISO_(stage.dueDate),
         notes: buildReminderNotes_(task, stage)
       }, DEFAULT_TASK_LIST);
 
@@ -38,13 +38,54 @@ function checkExpiredAndCreateGoogleTask() {
   }
 }
 
-function reminderStage_(today, warning, expired) {
+function reminderStage_(today, warning, expired, snoozeUntil) {
+  if (snoozeUntil && today < snoozeUntil) return null;
+
+  if (snoozeUntil && snoozeUntil < warning && today < warning) {
+    return {
+      key: `snooze-${dateKey_(snoozeUntil)}`,
+      kind: 'snooze',
+      title: 'Snooze End',
+      overdueDays: 0,
+      dueDate: snoozeUntil
+    };
+  }
+
   if (today < warning) return null;
-  if (warning < expired && today < expired) return { key: 'warning', kind: 'warning', title: 'Warning', overdueDays: 0 };
+  if (warning < expired && today < expired) {
+    const warningDueDate = snoozeUntil && snoozeUntil > warning ? snoozeUntil : warning;
+    return { key: 'warning', kind: 'warning', title: 'Warning', overdueDays: 0, dueDate: warningDueDate };
+  }
+
+  const delayedExpiry = snoozeUntil && snoozeUntil > expired;
+  const reminderAnchor = delayedExpiry ? snoozeUntil : expired;
+  const reminderDays = wholeDays_(reminderAnchor, today);
+  if (reminderDays < 0) return null;
+
   const overdueDays = wholeDays_(expired, today);
-  if (overdueDays < 7) return { key: 'expired', kind: 'expired', title: 'Expired', overdueDays };
-  const slot = Math.floor(overdueDays / 7);
-  return { key: `overdue-${slot}`, kind: 'overdue', title: 'Overdue', overdueDays };
+  const anchorKey = delayedExpiry ? `-${dateKey_(reminderAnchor)}` : '';
+  if (reminderDays < 7) {
+    return {
+      key: `expired${anchorKey}`,
+      kind: 'expired',
+      title: overdueDays > 0 ? 'Overdue' : 'Expired',
+      overdueDays,
+      dueDate: reminderAnchor
+    };
+  }
+
+  const slot = Math.floor(reminderDays / 7);
+  return {
+    key: `overdue${anchorKey}-${slot}`,
+    kind: 'overdue',
+    title: 'Overdue',
+    overdueDays,
+    dueDate: today
+  };
+}
+
+function dateKey_(date) {
+  return dateText_(date).replaceAll('-', '');
 }
 
 function wholeDays_(from, to) {
@@ -66,6 +107,7 @@ function buildReminderNotes_(task, stage) {
     `Warning: ${task.warningDate}`,
     `Expired: ${task.expiredDate}`
   ];
+  if (task.snoozeUntil) lines.push(`Snooze Until: ${task.snoozeUntil}`);
   if (stage.overdueDays > 0) lines.push(`Overdue: ${stage.overdueDays} days`);
   if (task.remark) lines.push('', task.remark);
   return lines.join('\n');

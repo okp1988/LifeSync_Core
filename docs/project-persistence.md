@@ -21,10 +21,20 @@ Local Google Sheet task cache.
 - Local task actions update this cache before upload.
 - Pending tasks stay visible until acknowledged.
 - Reminder and snooze metadata are cached with each task.
+- Level is stored as an integer from 1-5; legacy cache rows without Level use 1.
+- Link source, linked activation state, pause state/resume date, and nested minor definitions are cached with each full task. Paused and locked tasks remain in the cache for management even though active views exclude them.
+
+### `data\task-filters.json`
+
+Caches ALL/DEFAULT/custom definitions, the single favourite, and memberships. Manage Filters edits an in-memory copy; only Save atomically replaces this local configuration, while Close or Escape leaves the file unchanged. Legacy pending-upload metadata is ignored and normalized on the next Save.
 
 ### `data\task-sync-queue.json`
 
-Durable ordered outbox for create, edit, complete, snooze, clear-snooze, and archive operations. Entries include an operation ID, expected revision, payload, state, and optional conflict snapshot.
+Durable ordered outbox for create, edit, complete, pause, resume, snooze, clear-snooze, and archive operations. Entries include an operation ID, expected revision, payload, state, optional conflict snapshot, and optional `UploadAfter`. Completion payloads include selected minor IDs/dates, and new completion entries set `UploadAfter` one hour after local completion.
+
+### `data\completion-history.json`
+
+Stores local completion actions and synchronized Google Sheet Audit rows. New local records include the associated operation ID, completed date, task display fields, minor completion summary, state, and parent/follower pre-completion snapshots. The snapshots support atomic Undo only while that exact compound completion is Pending and no later mutation exists for any affected task.
 
 ### `data\checkin-settings.json`
 
@@ -32,7 +42,7 @@ Stores last check-in, last alert date, and the enabled/HHmm schedule for each da
 
 ### `data\watch-list.json`
 
-Stores unique local bookmarks using stable Task ID and the timestamp when each task was added. Display fields are resolved from `tasks.json`, and a successful Sync removes entries that no longer exist. Failed Sync attempts do not prune entries.
+Retired compatibility data from the former Watch List. Current code preserves the file without reading, modifying, pruning, or deleting it.
 
 ## Logs
 
@@ -46,7 +56,9 @@ Startup pruning removes matching log files older than `logRetentionDays`.
 - Apps Script URL and API key.
 - Log retention.
 - Task cache and mutation queue.
-- Watch List task IDs and date-added timestamps.
+- Completion history and pending Undo snapshots.
+- App-managed links, pause state, and minor definitions/completion state.
+- Existing retired Watch List data must remain untouched.
 - Check-in schedule and last check-in/alert dates.
 
 ## Must Not Persist
@@ -55,6 +67,6 @@ Startup pruning removes matching log files older than `logRetentionDays`.
 - Current selection.
 - Canceled drafts.
 - Current filters.
-- Current Tasks/Watch List/Daily Summary view.
+- Current Tasks/Priority/Daily Summary/History view.
 - Grid widths or sort direction.
 - Transient busy flags.

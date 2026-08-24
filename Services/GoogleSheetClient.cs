@@ -10,7 +10,7 @@ public sealed class GoogleSheetClient
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _httpClient = new();
 
-    public async Task<IReadOnlyList<SheetTask>> GetTasksAsync(AppConfig config, CancellationToken cancellationToken)
+    public async Task<TaskFetchResponse> GetTaskSnapshotAsync(AppConfig config, CancellationToken cancellationToken)
     {
         var url = BuildUrl(config, "tasks");
         AppLogger.Info($"GET {RedactToken(url.ToString())}");
@@ -30,20 +30,51 @@ public sealed class GoogleSheetClient
 
         if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("tasks", out var tasks))
         {
-            return JsonSerializer.Deserialize<List<SheetTask>>(tasks.GetRawText(), SerializerOptions) ?? [];
+            var historyRecords = root.TryGetProperty("historyRecords", out var history)
+                ? JsonSerializer.Deserialize<List<CompletionHistoryRecord>>(history.GetRawText(), SerializerOptions) ?? []
+                : [];
+            var filters = root.TryGetProperty("filters", out var filterElement)
+                ? JsonSerializer.Deserialize<List<TaskFilterDefinition>>(filterElement.GetRawText(), SerializerOptions) ?? []
+                : [];
+            return new TaskFetchResponse
+            {
+                Success = true,
+                Tasks = JsonSerializer.Deserialize<List<SheetTask>>(tasks.GetRawText(), SerializerOptions) ?? [],
+                HistoryRecords = historyRecords,
+                Filters = filters
+            };
         }
 
         if (root.ValueKind == JsonValueKind.Array)
         {
-            return JsonSerializer.Deserialize<List<SheetTask>>(root.GetRawText(), SerializerOptions) ?? [];
+            return new TaskFetchResponse
+            {
+                Success = true,
+                Tasks = JsonSerializer.Deserialize<List<SheetTask>>(root.GetRawText(), SerializerOptions) ?? []
+            };
         }
 
         if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var data))
         {
-            return ParseLegacyRows(data);
+            return new TaskFetchResponse { Success = true, Tasks = ParseLegacyRows(data).ToList() };
         }
 
         throw new InvalidOperationException("Google Sheet response does not contain a tasks array.");
+    }
+
+    public async Task SaveTaskFiltersAsync(AppConfig config, IEnumerable<TaskFilterDefinition> filters, CancellationToken cancellationToken)
+    {
+        var request = new { action = "saveFilters", token = config.ApiKey, operationId = Guid.NewGuid().ToString("D"), filters };
+        var json = JsonSerializer.Serialize(request, SerializerOptions);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var response = await _httpClient.PostAsync(config.GoogleAppsScriptUrl, content, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        EnsureHttpSuccess(response, body, "saving filters");
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("success", out var success) || !success.GetBoolean())
+        {
+            throw new InvalidOperationException(GetError(document.RootElement, "Google Sheet rejected filter changes."));
+        }
     }
 
     public async Task<TaskApiResponse> SendMutationAsync(

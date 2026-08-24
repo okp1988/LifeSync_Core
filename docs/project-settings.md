@@ -26,8 +26,7 @@ Controls appear in this order:
 2. Type
 3. Search Task
 4. Status
-5. Mode
-6. Clear Filters
+5. Clear Filters
 
 Status choices are hard-coded in `MainViewModel.Statuses`:
 
@@ -40,9 +39,16 @@ Status choices are hard-coded in `MainViewModel.Statuses`:
 
 `Pending` is derived from mutation sync state. Category, Type, Status, and Search Task combine and apply immediately. Search Task performs a case-insensitive partial match against the Task column. There is no Day Left filter.
 
-Mode choices:
+Tasks always order by Category, Type, Task. Urgent work is presented in the separate Priority view. Grid columns are not directly sortable.
 
-- `Normal`: Category, Type, Task.
-- `Priority`: Expired + Alert, Warning + Alert, Expired, Warning, then all remaining statuses; ties use Category, Type, Task.
+Tasks displays one Next Date selected from Warning, Expiry, active Snooze, or the next Google Task reminder. Its adjacent 10-block Cycle provides compact progress without changing task sort order.
 
-Mode remains selected during Sync, Clear Filters resets it to Normal, and startup begins in Normal. Grid columns are not directly sortable.
+Filter-only changes refresh the Tasks collection view. They do not rebuild Daily Summary, recalculate date-derived fields, or reapply sort descriptions.
+
+## Task Editor
+
+- Level is a required selection from 1-5; 5 is the highest priority and 1 is the lowest.
+- Category and Type use editable ComboBoxes populated from current task values; `ALL` is excluded.
+- Typing performs case-insensitive text search, while unmatched text remains valid as a new Category or Type.
+- Category and Type labels share a row with their ComboBoxes.
+- Save converts Category, Type, and Task to title case for both create and edit flows.
