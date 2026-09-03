@@ -1403,6 +1403,11 @@
                                              MinHeight="180"
                                              VerticalContentAlignment="Top"
                                              VerticalScrollBarVisibility="Auto" />
+                                    <Button Content="Save Remark Only"
+                                            Command="{Binding SaveSelectedRemarkCommand}"
+                                            HorizontalAlignment="Right"
+                                            Margin="0,8,0,0"
+                                            Padding="11,5" />
 
                                     <Border BorderBrush="#D9DEE7" BorderThickness="1" Padding="10" Margin="0,14,0,0"
                                             Visibility="{Binding SelectedTask.HasMinorTasks, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -1412,7 +1417,7 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="125" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Text="Minor Tasks — Check To Complete" FontWeight="SemiBold" />
+                                                <TextBlock Text="Select Minor Tasks" FontWeight="SemiBold" />
                                                 <TextBlock Grid.Column="1" Text="Complete Date" FontWeight="SemiBold" HorizontalAlignment="Center" />
                                             </Grid>
                                             <ItemsControl ItemsSource="{Binding MinorCompletionDrafts}">
@@ -1429,7 +1434,7 @@
                                                                 <RowDefinition Height="Auto" />
                                                                 <RowDefinition Height="Auto" />
                                                             </Grid.RowDefinitions>
-                                                            <CheckBox Grid.RowSpan="2" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" ToolTip="Include this minor task in the completion" />
+                                                            <CheckBox Grid.RowSpan="2" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" ToolTip="Use with Mark Complete or Update Selected Minors Only" />
                                                             <TextBlock Grid.Column="1" Text="{Binding MinorTask.Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding MinorTask.Name}" />
                                                             <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding MinorTask.CompactStatusDisplay}" VerticalAlignment="Center" Foreground="#65758B" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding MinorTask.CompactStatusDisplay}" />
                                                             <DatePicker Grid.RowSpan="2" Grid.Column="3" SelectedDate="{Binding CompletionDate}" IsEnabled="{Binding IsSelected}" Width="120" HorizontalAlignment="Right" ToolTip="Completion date for this minor task" />
@@ -1437,6 +1442,12 @@
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
+                                            <Button Content="Update Selected Minors Only"
+                                                    Command="{Binding UpdateSelectedMinorsCommand}"
+                                                    HorizontalAlignment="Right"
+                                                    Margin="0,9,0,0"
+                                                    Padding="11,5"
+                                                    Background="#1F7A46" />
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>
@@ -1444,6 +1455,166 @@
                         </Grid>
                     </Border>
                 </Grid>
+
+                <Border Grid.RowSpan="3"
+                        Background="#66000000"
+                        Panel.ZIndex="13"
+                        Visibility="{Binding IsCheckinSummaryOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Border Width="900"
+                            MaxHeight="650"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Background="White"
+                            BorderBrush="#C8CED8"
+                            BorderThickness="1"
+                            Padding="18">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="Daily Summary" FontSize="18" FontWeight="SemiBold" />
+                                <TextBlock Text="Alert-enabled tasks requiring attention, with related minor tasks."
+                                           Margin="0,4,0,0"
+                                           Foreground="#546171" />
+                            </StackPanel>
+
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Margin="0,0,8,0">
+                                    <TextBlock Text="Expired" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,7" />
+                                    <TextBlock Text="No expired tasks."
+                                               Foreground="#65758B"
+                                               Margin="0,0,0,14">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasExpiredCheckinSummaryRows}" Value="True">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <DataGrid ItemsSource="{Binding ExpiredCheckinSummaryRows}"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              CanUserDeleteRows="False"
+                                              CanUserSortColumns="False"
+                                              IsReadOnly="True"
+                                              RowHeaderWidth="0"
+                                              HeadersVisibility="Column"
+                                              GridLinesVisibility="Horizontal"
+                                              HorizontalGridLinesBrush="#E5E9F0"
+                                              BorderBrush="#D9DEE7"
+                                              MaxHeight="235"
+                                              Margin="0,0,0,18"
+                                              Visibility="{Binding HasExpiredCheckinSummaryRows, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Task (Category / Type)" Binding="{Binding TaskDisplay}" Width="*" MinWidth="330" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                            <DataGridTextColumn Header="Day Passed" Binding="{Binding DayPassedDisplay}" Width="100">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
+                                                        <Setter Property="TextAlignment" Value="Right" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsDueHighlight}" Value="True">
+                                                                <Setter Property="Foreground" Value="#B42318" />
+                                                                <Setter Property="FontWeight" Value="Bold" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Next Date" Binding="{Binding NextDateDisplay}" Width="135">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
+                                                        <Setter Property="TextAlignment" Value="Right" />
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Last Exec Date" Binding="{Binding LastExecutedDateDisplay}" Width="135">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
+                                                        <Setter Property="TextAlignment" Value="Right" />
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+
+                                    <TextBlock Text="Warning" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,7" />
+                                    <TextBlock Text="No warning tasks."
+                                               Foreground="#65758B">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasWarningCheckinSummaryRows}" Value="True">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <DataGrid ItemsSource="{Binding WarningCheckinSummaryRows}"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              CanUserDeleteRows="False"
+                                              CanUserSortColumns="False"
+                                              IsReadOnly="True"
+                                              RowHeaderWidth="0"
+                                              HeadersVisibility="Column"
+                                              GridLinesVisibility="Horizontal"
+                                              HorizontalGridLinesBrush="#E5E9F0"
+                                              BorderBrush="#D9DEE7"
+                                              MaxHeight="235"
+                                              Visibility="{Binding HasWarningCheckinSummaryRows, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Task (Category / Type)" Binding="{Binding TaskDisplay}" Width="*" MinWidth="330" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                            <DataGridTextColumn Header="Day Passed" Binding="{Binding DayPassedDisplay}" Width="100">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
+                                                        <Setter Property="TextAlignment" Value="Right" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsDueHighlight}" Value="True">
+                                                                <Setter Property="Foreground" Value="#B42318" />
+                                                                <Setter Property="FontWeight" Value="Bold" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Next Date" Binding="{Binding NextDateDisplay}" Width="135">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
+                                                        <Setter Property="TextAlignment" Value="Right" />
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Last Exec Date" Binding="{Binding LastExecutedDateDisplay}" Width="135">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
+                                                        <Setter Property="TextAlignment" Value="Right" />
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </ScrollViewer>
+
+                            <Button Grid.Row="2"
+                                    Content="Close"
+                                    Command="{Binding CloseCheckinSummaryCommand}"
+                                    HorizontalAlignment="Right"
+                                    Margin="0,14,0,0"
+                                    Background="#65758B" />
+                        </Grid>
+                    </Border>
+                </Border>
 
                 <Border Grid.RowSpan="3"
                         Background="#66000000"

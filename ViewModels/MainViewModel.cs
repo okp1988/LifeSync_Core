@@ -25,6 +25,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly ObservableCollection<SheetTask> _warningPriorityItems = [];
     private readonly ObservableCollection<SheetTask> _pausedTaskItems = [];
     private readonly ObservableCollection<MinorTaskCompletionDraft> _minorCompletionDrafts = [];
+    private readonly ObservableCollection<CheckinSummaryRow> _expiredCheckinSummaryRows = [];
+    private readonly ObservableCollection<CheckinSummaryRow> _warningCheckinSummaryRows = [];
     private readonly ObservableCollection<TaskFilterDefinition> _taskFilters = [];
     private readonly ObservableCollection<TaskFilterDefinition> _filterManagerDrafts = [];
     private readonly ObservableCollection<FilterTaskSelectionItem> _filterTaskSelectionItems = [];
@@ -56,6 +58,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _message = "Ready";
     private bool _isSettingsOpen;
     private bool _isUpdatingCheckinAllDays;
+    private bool _isCheckinSummaryOpen;
     private DateTime _lastCheckinDisplayRefreshDate = DateTime.MinValue;
     private DateTime _lastTaskCalculatedFieldsRefreshDate = DateTime.Today;
     private string _selectedRemarkDraft = string.Empty;
@@ -93,6 +96,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         RequestTasksCommand = new RelayCommand(RequestTasksAsync, CanUseNetwork);
         MarkCompleteCommand = new RelayCommand(MarkCompleteAsync, CanMutateSelectedTask);
+        SaveSelectedRemarkCommand = new RelayCommand(SaveSelectedRemarkAsync, CanSaveSelectedRemark);
+        UpdateSelectedMinorsCommand = new RelayCommand(UpdateSelectedMinorsAsync, CanUpdateSelectedMinors);
         ClearFiltersCommand = new RelayCommand(ClearFiltersAsync);
         ToggleAllTaskDetailsCommand = new RelayCommand(ToggleAllTaskDetailsAsync, CanToggleAllTaskDetails);
         CloseTaskSidebarCommand = new RelayCommand(CloseTaskSidebarAsync);
@@ -143,6 +148,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ClosePriorityDetailCommand = new RelayCommand(ClosePriorityDetailAsync);
         UndoCompletionCommand = new ParameterRelayCommand<CompletionHistoryRecord>(UndoCompletionAsync, record => record.CanUndo);
         CheckinCommand = new RelayCommand(CheckinAsync);
+        CloseCheckinSummaryCommand = new RelayCommand(CloseCheckinSummaryAsync);
         OpenSettingsCommand = new RelayCommand(OpenSettingsAsync);
         SaveSettingsCommand = new RelayCommand(SaveSettingsAsync);
         CancelSettingsCommand = new RelayCommand(CancelSettingsAsync);
@@ -157,6 +163,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<SheetTask> WarningPriorityItems => _warningPriorityItems;
     public ObservableCollection<SheetTask> PausedTaskItems => _pausedTaskItems;
     public ObservableCollection<MinorTaskCompletionDraft> MinorCompletionDrafts => _minorCompletionDrafts;
+    public ObservableCollection<CheckinSummaryRow> ExpiredCheckinSummaryRows => _expiredCheckinSummaryRows;
+    public ObservableCollection<CheckinSummaryRow> WarningCheckinSummaryRows => _warningCheckinSummaryRows;
     public ObservableCollection<TaskFilterDefinition> TaskFilters => _taskFilters;
     public ObservableCollection<TaskFilterDefinition> FilterManagerDrafts => _filterManagerDrafts;
     public ObservableCollection<FilterTaskSelectionItem> FilterTaskSelectionItems => _filterTaskSelectionItems;
@@ -192,6 +200,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public RelayCommand RequestTasksCommand { get; }
     public RelayCommand MarkCompleteCommand { get; }
+    public RelayCommand SaveSelectedRemarkCommand { get; }
+    public RelayCommand UpdateSelectedMinorsCommand { get; }
     public RelayCommand ClearFiltersCommand { get; }
     public RelayCommand ToggleAllTaskDetailsCommand { get; }
     public RelayCommand CloseTaskSidebarCommand { get; }
@@ -242,6 +252,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand ClosePriorityDetailCommand { get; }
     public ParameterRelayCommand<CompletionHistoryRecord> UndoCompletionCommand { get; }
     public RelayCommand CheckinCommand { get; }
+    public RelayCommand CloseCheckinSummaryCommand { get; }
     public RelayCommand OpenSettingsCommand { get; }
     public RelayCommand SaveSettingsCommand { get; }
     public RelayCommand CancelSettingsCommand { get; }
@@ -481,6 +492,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool HasCompletionHistoryItems => CompletionHistoryItems.Count > 0;
 
     public bool CheckinCheckboxValue => false;
+
+    public bool IsCheckinSummaryOpen
+    {
+        get => _isCheckinSummaryOpen;
+        private set
+        {
+            if (_isCheckinSummaryOpen == value) return;
+            _isCheckinSummaryOpen = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool HasExpiredCheckinSummaryRows => ExpiredCheckinSummaryRows.Count > 0;
+
+    public bool HasWarningCheckinSummaryRows => WarningCheckinSummaryRows.Count > 0;
 
     public string LastCheckinDisplay => _checkinSettings.LastCheckinAt is null
         ? "No check-in yet"
@@ -732,6 +758,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _selectedRemarkDraft = value;
             OnPropertyChanged();
+            SaveSelectedRemarkCommand.RaiseCanExecuteChanged();
         }
     }
 
@@ -1163,6 +1190,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsPausedManagerOpen = false;
         IsPauseEditorOpen = false;
         IsFilterManagerOpen = false;
+        IsCheckinSummaryOpen = false;
         _pauseTargetTask = null;
         SavePauseCommand.RaiseCanExecuteChanged();
         PauseResumeDate = null;
@@ -1252,6 +1280,86 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         await CompleteSelectedTaskAsync(selectedMinors);
+    }
+
+    private async Task SaveSelectedRemarkAsync()
+    {
+        if (SelectedTask is null || !CanSaveSelectedRemark())
+        {
+            return;
+        }
+
+        var task = SelectedTask;
+        task.Remark = SelectedRemarkDraft;
+        var mutation = CreateMutation(task, TaskMutationTypes.UpdateRemark);
+        mutation.Payload.Remark = task.Remark;
+        await QueueAndTryMutationAsync(mutation);
+        TasksView.Refresh();
+        SaveSelectedRemarkCommand.RaiseCanExecuteChanged();
+        Message = $"Saved remark for '{task.Task}' locally. {TaskSyncDisplay}.";
+    }
+
+    private async Task UpdateSelectedMinorsAsync()
+    {
+        if (SelectedTask is null || !CanUpdateSelectedMinors())
+        {
+            return;
+        }
+
+        var selectedMinors = _minorCompletionDrafts.Where(item => item.IsSelected).ToList();
+        if (selectedMinors.Count == 0)
+        {
+            Message = "Select at least one minor task to update.";
+            return;
+        }
+
+        if (selectedMinors.Any(item => item.CompletionDate is null))
+        {
+            Message = "Every selected minor task needs a completion date.";
+            return;
+        }
+
+        var task = SelectedTask;
+        var changedCount = 0;
+        foreach (var draft in selectedMinors)
+        {
+            var minor = task.MinorTasks.FirstOrDefault(item => string.Equals(
+                item.MinorTaskId,
+                draft.MinorTask.MinorTaskId,
+                StringComparison.OrdinalIgnoreCase));
+            if (minor is null)
+            {
+                continue;
+            }
+
+            var completionDate = draft.CompletionDate!.Value.Date;
+            var dueDate = minor.IntervalValue is > 0
+                ? AddTaskInterval(completionDate, minor.IntervalValue.Value, minor.IntervalUnit)
+                : (DateTime?)null;
+            if (minor.LatestCompletionDate?.Date == completionDate && minor.DueDate?.Date == dueDate?.Date)
+            {
+                draft.IsSelected = false;
+                continue;
+            }
+
+            minor.LatestCompletionDate = completionDate;
+            minor.DueDate = dueDate;
+            minor.NotifyCalculatedFieldsChanged();
+            draft.IsSelected = false;
+            changedCount++;
+        }
+
+        if (changedCount == 0)
+        {
+            Message = "The selected minor tasks already use those completion dates.";
+            return;
+        }
+
+        task.NotifyCalculatedFieldsChanged();
+        await QueueAndTryMutationAsync(CreateMutation(task, TaskMutationTypes.UpdateMinors));
+        TasksView.Refresh();
+        RebuildTaskSummary();
+        Message = $"Updated {changedCount} minor task(s) locally without completing '{task.Task}'. {TaskSyncDisplay}.";
     }
 
     private void PrepareMinorCompletionDrafts(SheetTask? task)
@@ -2332,7 +2440,117 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _checkinSettings.LastAlertDate = DateTime.Today;
         await _fileStore.SaveCheckinSettingsAsync(_checkinSettings);
         RefreshCheckinDisplayIfNeeded(force: true);
+        BuildCheckinSummary(DateTime.Today);
+        IsCheckinSummaryOpen = true;
         Message = $"Checked in at {LastCheckinDisplay}.";
+    }
+
+    private Task CloseCheckinSummaryAsync()
+    {
+        IsCheckinSummaryOpen = false;
+        return Task.CompletedTask;
+    }
+
+    private void BuildCheckinSummary(DateTime today)
+    {
+        var expiredRows = new List<CheckinSummaryRow>();
+        var warningRows = new List<CheckinSummaryRow>();
+
+        var families = _tasks
+            .Where(task => IsActiveViewTask(task) && !task.Completed && task.Alert)
+            .Select(task => new
+            {
+                Task = task,
+                Minors = task.ActiveMinorTasks
+                    .OrderBy(minor => minor.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+                MainExpired = task.ExpiredDate?.Date <= today,
+                MainWarning = task.WarningDate?.Date <= today,
+                HasExpiredMinor = task.ActiveMinorTasks.Any(minor => minor.DueDate?.Date <= today)
+            })
+            .Where(family => family.MainExpired || family.MainWarning || family.HasExpiredMinor)
+            .OrderByDescending(family => family.Task.Level)
+            .ThenBy(family => family.Task.Task, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(family => family.Task.Category, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(family => family.Task.Type, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var family in families)
+        {
+            var target = family.MainExpired || family.HasExpiredMinor
+                ? expiredRows
+                : warningRows;
+
+            target.Add(CreateMainCheckinSummaryRow(family.Task, today));
+            target.AddRange(family.Minors.Select(minor => CreateMinorCheckinSummaryRow(minor, today)));
+        }
+
+        ReplaceCollection(_expiredCheckinSummaryRows, expiredRows);
+        ReplaceCollection(_warningCheckinSummaryRows, warningRows);
+        OnPropertyChanged(nameof(HasExpiredCheckinSummaryRows));
+        OnPropertyChanged(nameof(HasWarningCheckinSummaryRows));
+    }
+
+    private static CheckinSummaryRow CreateMainCheckinSummaryRow(SheetTask task, DateTime today)
+    {
+        var isExpired = task.ExpiredDate?.Date <= today;
+        var isWarning = task.WarningDate?.Date <= today;
+        int? dayPassed = isExpired
+            ? (today - task.ExpiredDate!.Value.Date).Days
+            : isWarning
+                ? (today - task.WarningDate!.Value.Date).Days
+                : task.GridLastExecutedDate is DateTime lastExecuted
+                    ? (lastExecuted.Date - today).Days
+                    : null;
+
+        return new CheckinSummaryRow
+        {
+            TaskDisplay = $"{task.Task} ({task.Category} / {task.Type})",
+            DayPassed = dayPassed,
+            NextDate = GetNearestSummaryDate(today, task.WarningDate, task.ExpiredDate, task.SnoozeUntil),
+            LastExecutedDate = task.GridLastExecutedDate,
+            IsDueHighlight = isExpired || isWarning
+        };
+    }
+
+    private static CheckinSummaryRow CreateMinorCheckinSummaryRow(MinorTask minor, DateTime today)
+    {
+        var isExpired = minor.DueDate?.Date <= today;
+        int? dayPassed = isExpired
+            ? (today - minor.DueDate!.Value.Date).Days
+            : minor.LatestCompletionDate is DateTime lastExecuted
+                ? (lastExecuted.Date - today).Days
+                : minor.DueDate is DateTime dueDate
+                    ? (today - dueDate.Date).Days
+                    : null;
+
+        return new CheckinSummaryRow
+        {
+            TaskDisplay = $"→ {minor.Name}",
+            DayPassed = dayPassed,
+            NextDate = minor.DueDate?.Date,
+            LastExecutedDate = minor.LatestCompletionDate?.Date,
+            IsDueHighlight = isExpired
+        };
+    }
+
+    private static DateTime? GetNearestSummaryDate(DateTime today, params DateTime?[] dates)
+    {
+        return dates
+            .Where(date => date is not null)
+            .Select(date => date!.Value.Date)
+            .OrderBy(date => Math.Abs((date - today).Days))
+            .ThenBy(date => date)
+            .Cast<DateTime?>()
+            .FirstOrDefault();
+    }
+
+    private static void ReplaceCollection<T>(ObservableCollection<T> target, IEnumerable<T> values)
+    {
+        target.Clear();
+        foreach (var value in values)
+        {
+            target.Add(value);
+        }
     }
 
     private Task OpenSettingsAsync()
@@ -3627,6 +3845,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             && !string.IsNullOrWhiteSpace(SelectedTask.TaskId);
     }
 
+    private bool CanSaveSelectedRemark()
+    {
+        return CanEditSelectedTask()
+            && !string.Equals(SelectedTask!.Remark, SelectedRemarkDraft, StringComparison.Ordinal);
+    }
+
+    private bool CanUpdateSelectedMinors()
+    {
+        return CanMutateSelectedTask() && SelectedTask!.HasMinorTasks;
+    }
+
     private bool CanEditSelectedTask()
     {
         return SelectedTask is not null
@@ -3704,6 +3933,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         RequestTasksCommand.RaiseCanExecuteChanged();
         MarkCompleteCommand.RaiseCanExecuteChanged();
+        SaveSelectedRemarkCommand.RaiseCanExecuteChanged();
+        UpdateSelectedMinorsCommand.RaiseCanExecuteChanged();
         OpenSelectedTaskSidebarCommand.RaiseCanExecuteChanged();
         EditTaskCommand.RaiseCanExecuteChanged();
         ArchiveTaskCommand.RaiseCanExecuteChanged();

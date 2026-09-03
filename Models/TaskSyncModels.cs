@@ -9,6 +9,8 @@ public static class TaskMutationTypes
 {
     public const string Create = "create";
     public const string Update = "update";
+    public const string UpdateRemark = "updateRemark";
+    public const string UpdateMinors = "updateMinors";
     public const string Complete = "complete";
     public const string Snooze = "snooze";
     public const string ClearSnooze = "clearSnooze";

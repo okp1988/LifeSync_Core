@@ -125,6 +125,13 @@ function applyMutation_(context, request) {
     updateTaskFields_(context, row, payload);
     if (Array.isArray(payload.minorTasks)) syncMinorTasks_(taskId, payload.minorTasks, operationId);
   }
+  else if (action === 'updateRemark') {
+    setAt_(context, row, HEADERS.REMARK, String(payload.remark || ''));
+  }
+  else if (action === 'updateMinors') {
+    if (!Array.isArray(payload.minorTasks)) return { success: false, errorCode: 'INVALID_REQUEST', error: 'Minor tasks are required.' };
+    syncMinorTasks_(taskId, payload.minorTasks, operationId);
+  }
   else if (action === 'complete') affectedTasks = completeCompoundTask_(context, row, parseDate_(payload.executeDate) || new Date(), payload.remark || '', operationId, payload.minorCompletions || []);
   else if (action === 'snooze') {
     const snoozeUntil = parseDate_(payload.snoozeUntil);
