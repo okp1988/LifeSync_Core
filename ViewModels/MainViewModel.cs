@@ -20,7 +20,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly RangeObservableCollection<SheetTask> _tasks = [];
     private readonly List<TaskMutation> _taskSyncQueue = [];
     private readonly List<CompletionHistoryRecord> _completionHistoryRecords = [];
-    private readonly ObservableCollection<CompletionHistoryRecord> _completionHistoryItems = [];
+    private readonly RangeObservableCollection<CompletionHistoryRecord> _completionHistoryItems = [];
+    private readonly RangeObservableCollection<CompletionHistoryRecord> _unsyncedHistoryItems = [];
+    private readonly RangeObservableCollection<HistoryTaskSummary> _historyTaskSummaries = [];
     private readonly ObservableCollection<SheetTask> _expiredPriorityItems = [];
     private readonly ObservableCollection<SheetTask> _warningPriorityItems = [];
     private readonly ObservableCollection<SheetTask> _pausedTaskItems = [];
@@ -55,6 +57,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private TaskEditDraft _taskEditDraft = new();
     private ObservableCollection<TaskMutation> _taskConflicts = [];
     private TaskMutation? _selectedTaskConflict;
+    private ObservableCollection<TaskMutation> _pendingTaskMutations = [];
+    private TaskMutation? _selectedPendingTaskMutation;
+    private bool _isPendingManagerOpen;
+    private bool _isRetryingPending;
     private string _message = "Ready";
     private bool _isSettingsOpen;
     private bool _isUpdatingCheckinAllDays;
@@ -76,6 +82,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _taskSummarySnoozeNote = string.Empty;
     private bool _areSecondaryViewsReady;
     private DateTime _historyMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private int _historyMonthRecordCount;
+    private string _historySearchText = string.Empty;
+    private string? _selectedHistoryTaskKey;
+    private string _historyDetailTaskDisplay = string.Empty;
     private bool _isPausedManagerOpen;
     private bool _isPauseEditorOpen;
     private SheetTask? _pauseTargetTask;
@@ -130,6 +140,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CloseTaskConflictsCommand = new RelayCommand(CloseTaskConflictsAsync);
         KeepPcTaskConflictCommand = new RelayCommand(KeepPcTaskConflictAsync, HasSelectedTaskConflict);
         UseSheetTaskConflictCommand = new RelayCommand(UseSheetTaskConflictAsync, HasSelectedTaskConflict);
+        OpenPendingManagerCommand = new RelayCommand(OpenPendingManagerAsync, HasPendingTasks);
+        ClosePendingManagerCommand = new RelayCommand(ClosePendingManagerAsync);
+        RetrySelectedPendingCommand = new RelayCommand(RetrySelectedPendingAsync, CanRetrySelectedPending);
+        RetryAllPendingCommand = new RelayCommand(RetryAllPendingAsync, CanRetryAllPending);
         OpenSelectedTaskSummaryItemCommand = new RelayCommand(OpenSelectedTaskSummaryItemAsync, HasSelectedTaskSummaryItem);
         SnoozeTaskSummary1DayCommand = new RelayCommand(() => SnoozeSelectedTaskSummaryItemAsync(1), CanSnoozeSelectedTaskSummaryItem);
         SnoozeTaskSummary3DaysCommand = new RelayCommand(() => SnoozeSelectedTaskSummaryItemAsync(3), CanSnoozeSelectedTaskSummaryItem);
@@ -144,6 +158,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ShowHistoryViewCommand = new RelayCommand(ShowHistoryViewAsync, CanOpenSecondaryView);
         PreviousHistoryMonthCommand = new RelayCommand(ShowPreviousHistoryMonthAsync);
         NextHistoryMonthCommand = new RelayCommand(ShowNextHistoryMonthAsync, CanShowNextHistoryMonth);
+        OpenHistoryTaskDetailsCommand = new ParameterRelayCommand<HistoryTaskSummary>(OpenHistoryTaskDetailsAsync);
+        BackToHistorySummaryCommand = new RelayCommand(BackToHistorySummaryAsync);
         OpenPriorityDetailCommand = new RelayCommand(OpenPriorityDetailAsync, HasSelectedPriorityTask);
         ClosePriorityDetailCommand = new RelayCommand(ClosePriorityDetailAsync);
         UndoCompletionCommand = new ParameterRelayCommand<CompletionHistoryRecord>(UndoCompletionAsync, record => record.CanUndo);
@@ -159,6 +175,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ICollectionView TasksView { get; }
     public ObservableCollection<CompletionHistoryRecord> CompletionHistoryItems => _completionHistoryItems;
+    public ObservableCollection<CompletionHistoryRecord> UnsyncedHistoryItems => _unsyncedHistoryItems;
+    public ObservableCollection<HistoryTaskSummary> HistoryTaskSummaries => _historyTaskSummaries;
     public ObservableCollection<SheetTask> ExpiredPriorityItems => _expiredPriorityItems;
     public ObservableCollection<SheetTask> WarningPriorityItems => _warningPriorityItems;
     public ObservableCollection<SheetTask> PausedTaskItems => _pausedTaskItems;
@@ -234,6 +252,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand CloseTaskConflictsCommand { get; }
     public RelayCommand KeepPcTaskConflictCommand { get; }
     public RelayCommand UseSheetTaskConflictCommand { get; }
+    public RelayCommand OpenPendingManagerCommand { get; }
+    public RelayCommand ClosePendingManagerCommand { get; }
+    public RelayCommand RetrySelectedPendingCommand { get; }
+    public RelayCommand RetryAllPendingCommand { get; }
     public RelayCommand OpenSelectedTaskSummaryItemCommand { get; }
     public RelayCommand SnoozeTaskSummary1DayCommand { get; }
     public RelayCommand SnoozeTaskSummary3DaysCommand { get; }
@@ -248,6 +270,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand ShowHistoryViewCommand { get; }
     public RelayCommand PreviousHistoryMonthCommand { get; }
     public RelayCommand NextHistoryMonthCommand { get; }
+    public ParameterRelayCommand<HistoryTaskSummary> OpenHistoryTaskDetailsCommand { get; }
+    public RelayCommand BackToHistorySummaryCommand { get; }
     public RelayCommand OpenPriorityDetailCommand { get; }
     public RelayCommand ClosePriorityDetailCommand { get; }
     public ParameterRelayCommand<CompletionHistoryRecord> UndoCompletionCommand { get; }
@@ -419,10 +443,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
         : "Priority (loading)";
 
     public string HistoryViewDisplay => AreSecondaryViewsReady
-        ? $"History ({CompletionHistoryItems.Count})"
+        ? $"History ({_historyMonthRecordCount})"
         : "History (loading)";
 
     public string HistoryMonthDisplay => _historyMonth.ToString("MMMM yyyy");
+
+    public string HistorySearchText
+    {
+        get => _historySearchText;
+        set
+        {
+            if (_historySearchText == value) return;
+            _historySearchText = value;
+            OnPropertyChanged();
+            RebuildCompletionHistory();
+        }
+    }
+
+    public bool IsHistoryDetailView => _selectedHistoryTaskKey is not null;
+    public bool IsHistorySummaryView => !IsHistoryDetailView;
+    public bool HasUnsyncedHistoryItems => UnsyncedHistoryItems.Count > 0;
+    public string UnsyncedHistoryDisplay => $"Unsynced ({UnsyncedHistoryItems.Count}) · All months";
+    public bool HasHistoryTaskSummaries => HistoryTaskSummaries.Count > 0;
+    public string HistoryDetailTaskDisplay => _historyDetailTaskDisplay;
 
     public SheetTask? SelectedPriorityTask
     {
@@ -714,7 +757,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set => SetBusyFlag(ref _isMarkingComplete, value);
     }
 
-    public bool IsBusy => IsLoadingTasks;
+    public bool IsBusy => IsLoadingTasks || IsRetryingPending;
 
     public bool IsTaskSidebarOpen
     {
@@ -847,6 +890,49 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public int TaskPendingCount => _taskSyncQueue.Count(item => item.State == TaskMutationStates.Pending);
 
     public int TaskConflictCount => _taskSyncQueue.Count(item => item.State == TaskMutationStates.Conflict);
+
+    public string PendingButtonDisplay => $"Pending ({TaskPendingCount})";
+
+    public bool HasPendingTaskMutations => TaskPendingCount > 0;
+
+    public bool IsRetryingPending
+    {
+        get => _isRetryingPending;
+        private set => SetBusyFlag(ref _isRetryingPending, value);
+    }
+
+    public bool IsPendingManagerOpen
+    {
+        get => _isPendingManagerOpen;
+        private set
+        {
+            if (_isPendingManagerOpen == value) return;
+            _isPendingManagerOpen = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ObservableCollection<TaskMutation> PendingTaskMutations
+    {
+        get => _pendingTaskMutations;
+        private set
+        {
+            _pendingTaskMutations = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public TaskMutation? SelectedPendingTaskMutation
+    {
+        get => _selectedPendingTaskMutation;
+        set
+        {
+            if (_selectedPendingTaskMutation == value) return;
+            _selectedPendingTaskMutation = value;
+            OnPropertyChanged();
+            RefreshCommands();
+        }
+    }
 
     public bool IsTaskEditorOpen
     {
@@ -1191,6 +1277,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsPauseEditorOpen = false;
         IsFilterManagerOpen = false;
         IsCheckinSummaryOpen = false;
+        IsPendingManagerOpen = false;
+        SelectedPendingTaskMutation = null;
         _pauseTargetTask = null;
         SavePauseCommand.RaiseCanExecuteChanged();
         PauseResumeDate = null;
@@ -1228,7 +1316,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             AppLogger.Error("Failed network/API call while loading tasks", ex);
-            Message = $"Sync stopped: {ex.Message}. Pending work is still saved locally.";
+            Message = $"Sync stopped: {ex.Message}. Pending work is saved locally; open {PendingButtonDisplay} to review it.";
         }
         finally
         {
@@ -1785,6 +1873,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private Task ShowHistoryViewAsync()
     {
         CloseAllPopupsAndSidebars();
+        _selectedHistoryTaskKey = null;
         RebuildCompletionHistory();
         CurrentMainView = MainViewKind.History;
         return Task.CompletedTask;
@@ -1793,6 +1882,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private Task ShowPreviousHistoryMonthAsync()
     {
         _historyMonth = _historyMonth.AddMonths(-1);
+        _selectedHistoryTaskKey = null;
         OnPropertyChanged(nameof(HistoryMonthDisplay));
         RebuildCompletionHistory();
         NextHistoryMonthCommand.RaiseCanExecuteChanged();
@@ -1803,6 +1893,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (!CanShowNextHistoryMonth()) return Task.CompletedTask;
         _historyMonth = _historyMonth.AddMonths(1);
+        _selectedHistoryTaskKey = null;
         OnPropertyChanged(nameof(HistoryMonthDisplay));
         RebuildCompletionHistory();
         NextHistoryMonthCommand.RaiseCanExecuteChanged();
@@ -1813,6 +1904,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         var currentMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         return _historyMonth < currentMonth;
+    }
+
+    private Task OpenHistoryTaskDetailsAsync(HistoryTaskSummary summary)
+    {
+        _selectedHistoryTaskKey = summary.TaskKey;
+        RebuildCompletionHistory();
+        return Task.CompletedTask;
+    }
+
+    private Task BackToHistorySummaryAsync()
+    {
+        _selectedHistoryTaskKey = null;
+        RebuildCompletionHistory();
+        return Task.CompletedTask;
     }
 
     private Task OpenPriorityDetailAsync()
@@ -2366,6 +2471,72 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsTaskConflictOpen = false;
         SelectedTaskConflict = null;
         return Task.CompletedTask;
+    }
+
+    private Task OpenPendingManagerAsync()
+    {
+        RebuildPendingChanges();
+        IsPendingManagerOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private Task ClosePendingManagerAsync()
+    {
+        IsPendingManagerOpen = false;
+        SelectedPendingTaskMutation = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task RetrySelectedPendingAsync()
+    {
+        if (SelectedPendingTaskMutation is null || !CanRetrySelectedPending())
+        {
+            return;
+        }
+
+        var taskId = SelectedPendingTaskMutation.TaskId;
+        var taskName = SelectedPendingTaskMutation.Payload.Task;
+        IsRetryingPending = true;
+        Message = $"Retrying pending change for '{taskName}'...";
+        try
+        {
+            await ProcessPendingMutationsAsync(taskId, includeDelayed: true);
+            Message = $"Pending change retried. {TaskSyncDisplay}.";
+        }
+        catch (Exception ex)
+        {
+            Message = $"Retry failed: {ex.Message}";
+        }
+        finally
+        {
+            IsRetryingPending = false;
+            RebuildPendingChanges();
+        }
+    }
+
+    private async Task RetryAllPendingAsync()
+    {
+        if (!CanRetryAllPending())
+        {
+            return;
+        }
+
+        IsRetryingPending = true;
+        Message = "Retrying all pending changes...";
+        try
+        {
+            await ProcessPendingMutationsAsync(includeDelayed: true);
+            Message = $"Pending changes retried. {TaskSyncDisplay}.";
+        }
+        catch (Exception ex)
+        {
+            Message = $"Some pending changes still failed: {ex.Message}";
+        }
+        finally
+        {
+            IsRetryingPending = false;
+            RebuildPendingChanges();
+        }
     }
 
     private async Task KeepPcTaskConflictAsync()
@@ -2957,7 +3128,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             AppLogger.Error($"Task mutation queued for later: {taskId}", ex);
-            Message = $"Saved locally; upload is pending: {ex.Message}";
+            Message = $"Saved locally; upload is pending: {ex.Message}. Open {PendingButtonDisplay} to review it.";
         }
     }
 
@@ -2998,6 +3169,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
                     try
                     {
+                        mutation.LastAttemptAt = DateTime.Now;
+                        mutation.LastError = string.Empty;
                         var response = await _sheetClient.SendMutationAsync(_config, mutation, CancellationToken.None);
                         if (response.Success && response.Task is not null)
                         {
@@ -3048,6 +3221,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         if (string.Equals(response.ErrorCode, "REVISION_CONFLICT", StringComparison.OrdinalIgnoreCase))
                         {
                             mutation.State = TaskMutationStates.Conflict;
+                            mutation.LastError = string.IsNullOrWhiteSpace(response.Error)
+                                ? "Task changed in Google Sheet."
+                                : response.Error;
                             mutation.ServerTask = response.ServerTask;
                             MarkCompletionHistoryConflict(mutation.OperationId);
                             await PersistTaskStateAsync();
@@ -3060,6 +3236,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     }
                     catch (Exception ex)
                     {
+                        mutation.LastAttemptAt ??= DateTime.Now;
+                        mutation.LastError = ex.Message;
+                        try
+                        {
+                            await _fileStore.SaveTaskSyncQueueAsync(_taskSyncQueue);
+                        }
+                        catch (Exception saveException)
+                        {
+                            AppLogger.Error($"Could not persist the latest pending failure for task {taskId}", saveException);
+                        }
                         AppLogger.Error($"Pending task mutation failed; continuing with other tasks: {taskId}", ex);
                         uploadFailures.Add($"{mutation.Payload.Task}: {ex.Message}");
                         break;
@@ -3213,10 +3399,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         var monthEnd = _historyMonth.AddMonths(1);
 
-        ApplyCompletionHistoryRows(_completionHistoryRecords
+        var monthRecords = _completionHistoryRecords
             .Where(record => record.CompletedDate.Date >= _historyMonth && record.CompletedDate.Date < monthEnd)
             .OrderByDescending(record => record.RecordedAt)
+            .ThenByDescending(record => record.CompletedDate)
+            .ToList();
+        _historyMonthRecordCount = monthRecords.Count;
+
+        _unsyncedHistoryItems.ReplaceAll(_completionHistoryRecords
+            .Where(record => record.State is CompletionHistoryStates.Pending or CompletionHistoryStates.Conflict)
+            .OrderByDescending(record => record.RecordedAt)
             .ThenByDescending(record => record.CompletedDate));
+
+        var summaries = HistoryTaskSummary.Build(monthRecords).ToList();
+        _historyTaskSummaries.ReplaceAll(summaries.Where(summary => summary.MatchesSearch(HistorySearchText)));
+        var selectedSummary = summaries.FirstOrDefault(summary => string.Equals(
+            summary.TaskKey, _selectedHistoryTaskKey, StringComparison.OrdinalIgnoreCase));
+        _selectedHistoryTaskKey = selectedSummary?.TaskKey;
+        _historyDetailTaskDisplay = selectedSummary?.TaskDisplay ?? string.Empty;
+        ApplyCompletionHistoryRows(selectedSummary is null
+            ? []
+            : monthRecords.Where(record => string.Equals(
+                HistoryTaskSummary.GetTaskKey(record), _selectedHistoryTaskKey, StringComparison.OrdinalIgnoreCase)));
+
+        OnPropertyChanged(nameof(IsHistoryDetailView));
+        OnPropertyChanged(nameof(IsHistorySummaryView));
+        OnPropertyChanged(nameof(HistoryDetailTaskDisplay));
+        OnPropertyChanged(nameof(HasHistoryTaskSummaries));
+        OnPropertyChanged(nameof(HasUnsyncedHistoryItems));
+        OnPropertyChanged(nameof(UnsyncedHistoryDisplay));
     }
 
     private void UpdateMonthlyHistoryCounts()
@@ -3239,11 +3450,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ApplyCompletionHistoryRows(IEnumerable<CompletionHistoryRecord> rows)
     {
-        _completionHistoryItems.Clear();
-        foreach (var row in rows)
-        {
-            _completionHistoryItems.Add(row);
-        }
+        _completionHistoryItems.ReplaceAll(rows);
 
         OnPropertyChanged(nameof(HistoryViewDisplay));
         OnPropertyChanged(nameof(HasCompletionHistoryItems));
@@ -3472,8 +3679,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(TaskPendingCount));
         OnPropertyChanged(nameof(TaskConflictCount));
         OnPropertyChanged(nameof(TaskSyncDisplay));
+        OnPropertyChanged(nameof(PendingButtonDisplay));
+        OnPropertyChanged(nameof(HasPendingTaskMutations));
         RebuildTaskConflicts();
+        RebuildPendingChanges();
         RefreshCommands();
+    }
+
+    private void RebuildPendingChanges()
+    {
+        var selectedOperationId = SelectedPendingTaskMutation?.OperationId;
+        SelectedPendingTaskMutation = null;
+        PendingTaskMutations = new ObservableCollection<TaskMutation>(
+            _taskSyncQueue
+                .Where(item => item.State == TaskMutationStates.Pending)
+                .OrderBy(item => item.QueuedAt));
+        SelectedPendingTaskMutation = PendingTaskMutations.FirstOrDefault(item => string.Equals(
+                item.OperationId,
+                selectedOperationId,
+                StringComparison.OrdinalIgnoreCase))
+            ?? PendingTaskMutations.FirstOrDefault();
     }
 
     private void RebuildTaskConflicts()
@@ -3600,29 +3825,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         var expired = activeTasks
                 .Where(task => task.ExpiredDate?.Date <= today)
-                .OrderBy(task => task.ExpiredDate)
+                .OrderBy(task => task.GetNextGoogleTaskDayLeft(today) ?? int.MaxValue)
+                .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
                 .Select(task => new TaskSummaryItem(task, "Expired / Overdue"))
                 .ToList();
 
         var warning = activeTasks
                 .Where(task => task.ExpiredDate?.Date > today && task.WarningDate?.Date <= today)
-                .OrderBy(task => task.WarningDate)
-                .ThenBy(task => task.ExpiredDate)
+                .OrderBy(task => task.GetNextGoogleTaskDayLeft(today) ?? int.MaxValue)
+                .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
                 .Select(task => new TaskSummaryItem(task, "Warning"))
                 .ToList();
 
         var snoozed = availableTasks
                 .Where(IsTaskSnoozedForToday)
-                .OrderBy(task => task.SnoozeUntil)
+                .OrderBy(task => task.GetNextGoogleTaskDayLeft(today) ?? int.MaxValue)
+                .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Category, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(task => task.Type, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(task => task.Task, StringComparer.OrdinalIgnoreCase)
                 .Select(task => new TaskSummaryItem(task, "Snoozed"))
                 .ToList();
 
@@ -3884,6 +4108,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return TaskConflictCount > 0;
     }
 
+    private bool HasPendingTasks() => TaskPendingCount > 0;
+
+    private bool CanRetrySelectedPending()
+    {
+        return SelectedPendingTaskMutation is not null && !IsBusy;
+    }
+
+    private bool CanRetryAllPending()
+    {
+        return TaskPendingCount > 0 && !IsBusy;
+    }
+
     private bool HasSelectedTaskConflict()
     {
         return SelectedTaskConflict is not null;
@@ -3946,6 +4182,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OpenTaskConflictsCommand.RaiseCanExecuteChanged();
         KeepPcTaskConflictCommand.RaiseCanExecuteChanged();
         UseSheetTaskConflictCommand.RaiseCanExecuteChanged();
+        OpenPendingManagerCommand.RaiseCanExecuteChanged();
+        RetrySelectedPendingCommand.RaiseCanExecuteChanged();
+        RetryAllPendingCommand.RaiseCanExecuteChanged();
         OpenSelectedTaskSummaryItemCommand.RaiseCanExecuteChanged();
         SnoozeTaskSummary1DayCommand.RaiseCanExecuteChanged();
         SnoozeTaskSummary3DaysCommand.RaiseCanExecuteChanged();
@@ -4045,14 +4284,25 @@ public sealed class TaskSummaryItem
         }
     }
 
-    public string DayState => TaskItem.DayLeft switch
+    public string DayState
     {
-        null => string.Empty,
-        < 0 => $"{Math.Abs(TaskItem.DayLeft.Value)} overdue",
-        0 => "Due today",
-        1 => "1 day left",
-        var days => $"{days} days left"
-    };
+        get
+        {
+            var dueState = TaskItem.DayLeft switch
+            {
+                null => string.Empty,
+                < 0 => $"{Math.Abs(TaskItem.DayLeft.Value)} overdue",
+                0 => "Due today",
+                1 => "1 day left",
+                var days => $"{days} days left"
+            };
+            var googleTaskState = TaskItem.NextGoogleTaskDayLeftDisplay;
+            if (string.IsNullOrWhiteSpace(dueState)) return googleTaskState;
+            return string.IsNullOrWhiteSpace(googleTaskState) ? dueState : $"{dueState} | {googleTaskState}";
+        }
+    }
+
+    public string DayStateToolTip => "G = days until the next Google Task is created";
 
     public string DayStateBrush => TaskItem.DayLeft switch
     {
@@ -4065,19 +4315,17 @@ public sealed class TaskSummaryItem
 
     public string RemarkPreview => TaskItem.RemarkPreview;
 
-    public string Snooze => TaskItem.SnoozeDisplay;
-
     public string GoogleTask => TaskItem.GoogleTaskDisplay;
+
+    public string NextGoogleTask => TaskItem.NextGoogleTaskScheduleDisplay;
+
+    public string LastGoogleTaskCreated => TaskItem.LastGoogleTaskCreatedDisplay;
 
     public string Sync => TaskItem.SyncState;
 
     public Visibility AlertVisibility => TaskItem.Alert ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility RemarkVisibility => string.IsNullOrWhiteSpace(RemarkPreview)
-        ? Visibility.Collapsed
-        : Visibility.Visible;
-
-    public Visibility SnoozeVisibility => string.IsNullOrWhiteSpace(Snooze)
         ? Visibility.Collapsed
         : Visibility.Visible;
 

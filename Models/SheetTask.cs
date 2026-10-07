@@ -265,6 +265,39 @@ public sealed class SheetTask : INotifyPropertyChanged
             : $"Google Task {LastGoogleTaskCreatedDate.Value:dd MMM yyyy}";
 
     [JsonIgnore]
+    public string NextGoogleTaskScheduleDisplay
+    {
+        get
+        {
+            var schedule = BuildGoogleTaskSchedule(DateTime.Today);
+            return schedule.Date is null
+                ? "Next Google Task: -"
+                : $"Next Google Task: {schedule.Kind} - {schedule.Date.Value:dd MMM yyyy}";
+        }
+    }
+
+    [JsonIgnore]
+    public int? NextGoogleTaskDayLeft => GetNextGoogleTaskDayLeft(DateTime.Today);
+
+    [JsonIgnore]
+    public string NextGoogleTaskDayLeftDisplay => NextGoogleTaskDayLeft is int days
+        ? $"G {days}d"
+        : string.Empty;
+
+    public int? GetNextGoogleTaskDayLeft(DateTime today)
+    {
+        var nextDate = BuildGoogleTaskSchedule(today).Date;
+        return nextDate is null ? null : (nextDate.Value.Date - today.Date).Days;
+    }
+
+    [JsonIgnore]
+    public string LastGoogleTaskCreatedDisplay => string.IsNullOrWhiteSpace(LastGoogleTaskId)
+        ? "Last Created: Never"
+        : LastGoogleTaskCreatedDate is null
+            ? "Last Created: Yes"
+            : $"Last Created: {LastGoogleTaskCreatedDate.Value:dd MMM yyyy}";
+
+    [JsonIgnore]
     public int MonthlyHistoryCount
     {
         get => _monthlyHistoryCount;
@@ -371,6 +404,10 @@ public sealed class SheetTask : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsSnoozed));
         OnPropertyChanged(nameof(SnoozeDisplay));
         OnPropertyChanged(nameof(GoogleTaskDisplay));
+        OnPropertyChanged(nameof(NextGoogleTaskScheduleDisplay));
+        OnPropertyChanged(nameof(NextGoogleTaskDayLeft));
+        OnPropertyChanged(nameof(NextGoogleTaskDayLeftDisplay));
+        OnPropertyChanged(nameof(LastGoogleTaskCreatedDisplay));
         OnPropertyChanged(nameof(History));
         OnPropertyChanged(nameof(MonthlyHistoryDisplay));
         OnPropertyChanged(nameof(NextDateDisplay));
@@ -512,6 +549,60 @@ public sealed class SheetTask : INotifyPropertyChanged
         return new NextDateInfo(nextAlert, $"({expiryDays} | {nextAlertDays})", NextDateKinds.Alert);
     }
 
+    private GoogleTaskScheduleInfo BuildGoogleTaskSchedule(DateTime todayValue)
+    {
+        var today = todayValue.Date;
+        var expired = ExpiredDate?.Date;
+        if (!Alert || expired is null || Archived || Completed || IsEffectivelyPaused || IsLinkedLocked)
+        {
+            return new GoogleTaskScheduleInfo(null, string.Empty);
+        }
+
+        var snooze = SnoozeUntil?.Date;
+        var cycleKey = expired.Value.ToString("yyyyMMdd");
+        string FullKey(string stageKey) => $"{TaskId}|{cycleKey}|{stageKey}";
+
+        var delayedExpiry = snooze is not null && snooze.Value > expired.Value;
+        var reminderAnchor = delayedExpiry ? snooze!.Value : expired.Value;
+        if (today < reminderAnchor)
+        {
+            var kind = snooze is not null && snooze.Value >= expired.Value
+                ? "Snooze End / Expired"
+                : "Expired";
+            return new GoogleTaskScheduleInfo(reminderAnchor, kind);
+        }
+
+        var reminderDays = Math.Max(0, (today - reminderAnchor).Days);
+        var anchorKey = delayedExpiry ? $"-{reminderAnchor:yyyyMMdd}" : string.Empty;
+        var stageKey = reminderDays < 7
+            ? $"expired{anchorKey}"
+            : $"overdue{anchorKey}-{reminderDays / 7}";
+        var currentReminderKey = FullKey(stageKey);
+        if (!string.Equals(LastGoogleTaskKey, currentReminderKey, StringComparison.Ordinal))
+        {
+            var nextTriggerDate = GetNextGoogleTaskTriggerDate(today);
+            var daysAtNextTrigger = Math.Max(0, (nextTriggerDate - reminderAnchor).Days);
+            var currentKind = delayedExpiry && daysAtNextTrigger == 0
+                ? "Snooze End / Expired"
+                : nextTriggerDate > expired.Value
+                    ? "Overdue"
+                    : "Expired";
+            return new GoogleTaskScheduleInfo(nextTriggerDate, currentKind);
+        }
+
+        var nextDate = reminderDays < 7
+            ? reminderAnchor.AddDays(7)
+            : reminderAnchor.AddDays(((reminderDays / 7) + 1) * 7);
+        return new GoogleTaskScheduleInfo(nextDate, "Overdue");
+    }
+
+    private static DateTime GetNextGoogleTaskTriggerDate(DateTime today)
+    {
+        return today.Date == DateTime.Today && DateTime.Now.Hour >= 7
+            ? today.Date.AddDays(1)
+            : today.Date;
+    }
+
     private IReadOnlyList<CycleTimelineBlock> BuildCycleTimeline(DateTime todayValue)
     {
         if (!HasCycleTimeline) return [];
@@ -553,6 +644,8 @@ public sealed class SheetTask : INotifyPropertyChanged
     }
 
     private sealed record NextDateInfo(DateTime? Date, string Metrics, string Kind);
+
+    private sealed record GoogleTaskScheduleInfo(DateTime? Date, string Kind);
 }
 
 public sealed record CycleTimelineBlock(string State);

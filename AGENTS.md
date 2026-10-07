@@ -1,53 +1,38 @@
-# AGENTS.md
+# LifeSync agent instructions
 
-## Project Shape
+Added: 2026-09-08 12:37 +08:00. Updated: 2026-10-05 13:17 +08:00. Status: active; final implementation cleanup/checkpoint and bug-report-only workflow processed. Original dates of older rules unknown.
 
-- `LifeSyncTaskClient.csproj` is a Windows-only WPF app targeting `net8.0-windows10.0.19041.0`; builds need the Windows SDK available.
-- If a default build fails because `LifeSyncTaskClient.exe` is locked by the running app, notify the user to close the app before trying the default build again.
-- `MainWindow.xaml` owns the entire UI: unified Tasks/Priority/Daily Summary/History views, toolbar, filters, grids, overlays, and sidebars. `MainWindow.xaml.cs` only wires UI event glue such as startup, Escape, double-click detail opening, mouse-wheel forwarding, date picker input blocking, and grid selection behavior.
-- `ViewModels/MainViewModel.cs` is the workflow hub. Keep synchronization, filtering, local cache/outbox updates, task selection, and completion behavior there unless a change clearly belongs in a service.
-- Startup publishes Tasks first. Priority, Daily Summary, and History stay disabled with loading labels until `BuildSecondaryViewsAfterStartupAsync()` finishes its delayed snapshot build; ordinary task filtering must refresh only `TasksView`.
-- Daily Summary includes only active tasks with Alert enabled, including its Expired, Warning, and Snoozed sections.
-- `Models/SheetTask.cs` contains computed UI state: `DayLeft` and `Status` are derived from dates plus `Completed`; call `NotifyCalculatedFieldsChanged()` after changing fields that affect them.
-- `Services/GoogleSheetClient.cs` is the only Google Apps Script HTTP client. It accepts both `{ tasks: [...] }` JSON and legacy `{ data: [...] }` row arrays.
-- `Services/JsonFileStore.cs`, `Services/AppPaths.cs`, and `Services/AppLogger.cs` define local persistence under the build output folder, not the repo root.
-- `apps-script` is the production Apps Script source and migration package. `docs/google-apps-script.js` is only a deprecated pointer kept for older references.
+## Documentation and scope
 
-## Runtime Data Contract
+- Before implementation, after compaction, or when context is unclear, read relevant [requirements](docs/requirements.md) and [progress](docs/progress.md). Requirements express user intent; progress records implementation/evidence. Code and agent suggestions do not establish requirements.
+- Maintain exactly five project-local Markdown records, each with a separate purpose: this file owns project working rules; requirements owns confirmed requirements, restrictions and unresolved requirements; progress owns implementation status, verification evidence and remaining work; [Discussion](docs/DISCUSSION.md) owns active discussion, decisions, approval scope and next steps; [External folders](docs/EXTERNAL_FOLDERS.md) registers project-used external roots, known subpaths, purposes and evidence.
+- Discussion and External folders are maintained automatically throughout work without further approval. Keep them concise and current when material state or known folder usage changes. Before resuming non-trivial work, read Discussion; follow the global pending-item and discussion-cleanup workflows. Discussion is not a replacement for requirements/progress. Folder registration does not authorize external writes.
+- Updated: 2026-10-05 13:17 +08:00. Status: confirmed standing authorization, processed. After each implementation, the final process is discussion cleanup and a documentation checkpoint, after the applicable build/check/review work. This standing instruction authorizes that final documentation step without another request. Merge confirmed requirements into requirements, actual implementation/checks/unknowns into progress, and any confirmed working-rule changes into AGENTS; skip unchanged files/sections. Save and verify destinations before removing completed Discussion items. Retain actual unfinished work, unresolved decisions and reported bugs; do not retain success-acknowledgement items. Cleanup here means discussion records, not deletion of code/data/folders.
+- Outside that final implementation step, AGENTS, requirements and progress remain request-only. Save authorized important changes promptly rather than waiting for compaction. No automatic new Markdown files, shared-contribution edits or global-rule edits are authorized by the final checkpoint.
+- Follow the global working rules alongside these project-specific rules; current user instructions override conflicting older documentation. Do not automatically load `_General/INDEX.md` or other shared standards.
+- Update affected sections, avoid duplication, and replace superseded requirements with later confirmed decisions. Separate unclear requirements. Do not rewrite whole files routinely.
+- Each added/changed entry or coherent section needs added/updated date-time, timezone, and pending/processed status. Track confirmation separately from implementation/verification. Mark imported dates unknown rather than inventing them; record processed timestamps when work completes.
+- Ask before adding Markdown beyond the five designated records, giving the concrete information, audience, why existing files cannot hold it, and overlap checks. Do not recreate READMEs or automatic review/summary files.
+- Optional `../_General/behavior[project].md` (project placeholder; exact filename/existence unconfirmed) shares rules/behavior with other agents and is not personal Markdown. Create/update only on request; verify exact path and existing content, deduplicate/update entries, and timestamp each entry with processing status. Do not assume it exists or inspect unrelated shared files.
+- Do not start additional implementation, refactoring, unrelated reviews, deployment, or a recorded next step unless requested. Useful in-scope read-only impact/regression reviews and subagent delegation follow the global rules without separate requests; they do not expand editing approval.
 
-- Local runtime files live under `<build output>\data` and `<build output>\log`; current debug data is therefore under `bin\Debug\net8.0-windows10.0.19041.0\`.
-- `config.json` stores the deployed Apps Script URL, API key, and log retention. Do not move this to appsettings without changing `AppPaths`/`JsonFileStore`.
-- `tasks.json` is a cache, not the source of truth. Pressing **Sync** uploads every queued mutation, including completion mutations whose `UploadAfter` time has not arrived, then pulls Google Sheet tasks and merges by stable `Task ID` without overwriting pending local tasks.
-- `task-sync-queue.json` stores pending/conflict create, edit, complete, snooze, clear-snooze, and archive operations.
-- `completion-history.json` stores local completion actions, imported stable Audit rows, and pre-completion snapshots used for pending Undo. History is browsed by month.
-- `watch-list.json` is retired compatibility data. Current code does not read, modify, or delete it.
-- The grid status filter values are hard-coded in `MainViewModel.Statuses`; current choices are `ALL`, `Normal`, `Warning`, `Expired`, `Pending`, and `Warning + Expired`.
-- Task editor Level is a required 1-5 selection (5 highest, 1 lowest). Category and Type are editable, searchable ComboBoxes backed by options that exclude `ALL`; new values remain valid, and Save normalizes Category, Type, and Task to title case.
-- Editing an active task's expired or warning cycle recalculates both dates from Last Executed Date, falling back to Prev Date 01 for legacy rows; reject warning dates after expiry.
-- Priority tables sort by Level descending, then Day Left ascending, Category, Type, and Task. Missing legacy Level values normalize to 1.
-- Tasks places State first. State shows Level, History, Alert, Sync, a conditional Pause badge, and Status icons; Level uses a black-bordered white-to-red scale from 1 to 5. Paused rows in `ALL` use a muted background and expose their resume state through the Pause tooltip.
-- The History state badge shows the current-month count as `N×` only for Audit-enabled tasks. Sync merges Audit rows by operation ID, with a legacy semantic fallback.
-- Tasks merges Warning, Expired, and Alert dates into Next Date and shows a 10-block Cycle timeline. Overdue values are negative; post-expiry reminder dates follow the Apps Script snooze-adjusted seven-day cadence.
-- Tasks defaults to `DEFAULT`; effectively paused tasks and locked linked followers stay cached but are excluded from DEFAULT, custom views, Priority, Daily Summary, and reminders. `ALL` intentionally shows the complete non-archived hierarchy.
-- Linked branching may continue to arbitrary depth while self-links and cycles are rejected. Stable minor definitions are app-managed; conditional row expansion shows Minor Tasks and linked followers, one toolbar command expands/collapses every eligible visible row, and minors never enter Priority, Daily Summary, or Google reminders.
-- Manage Filters uses an explicit in-memory draft. Only Save atomically writes `task-filters.json`; Close or Escape discards all draft changes.
-- The legacy row-array parser maps columns by index: Category `0`, Type `1`, Task `2`, Expired Date `3`, Warning Date `4`, Prev Date 1 `6`, Prev Date 2 `7`, Remark `8`, Completed `9`.
-- Production Apps Script preserves user columns A-S, renames old `Track ID` to `Last Google Task ID`, and appends stable system columns such as `Task ID`, `Revision`, `Updated At`, `Archived`, snooze fields, reminder metadata, `Last LifeSync Operation ID`, and `Level`.
+## Workspace and safety
 
-## Completion Flow Rules
+- Repository is the only general-purpose writable workspace. Preserve unrelated dirty changes and user runtime data. No unauthorized secrets, global configuration, dependencies, or Git history/remote changes.
+- Shared standards/icons are read-only unless maintenance is requested. For icon buttons, search `../_General/icon_index.csv`, propose an indexed icon and obtain icon-selection confirmation before inspecting/copying/using its file. Do not recursively scan shared icons. Copy approved assets locally; never depend on the shared folder at runtime/build/deployment. Icon-only buttons need concise tooltips and accessible names.
+- Normal builds may read installed SDKs, targeting packs, restored NuGet packages/caches and use OS build temporary files. No unrelated external/AppData inspection or cleanup, external filesystem links, package installation/restore, or network without approval.
+- Before deleting/moving/renaming/replacing, list exact targets, reasons, dependencies and recovery. No broad recursive deletion, destructive Git cleanup, alternate output/workspace paths, or background processes without authorization.
+- Keep UI in MainWindow.xaml, event glue in code-behind, workflows in MainViewModel, computed fields in SheetTask, HTTP in GoogleSheetClient, persistence in AppPaths/JsonFileStore. Notify calculated fields after mutations; preserve local save before upload, pending/conflict data and virtualization.
 
-- Selecting a task resets `CompletionDate` to `DateTime.Today`, but single-click selection must not open the task sidebar. Main-grid double-click or Summary Open opens detail.
-- `Mark Complete` must update local state, save `tasks.json` and `task-sync-queue.json`, close the action UI, and start upload in the background. Do not block other task actions while upload is pending.
-- Completion advances the recurring cycle locally: update remark, last executed date, previous dates, next expired date, next warning date, and clear snooze fields.
-- Failed uploads stay `Pending`; stale revisions become `Conflict` for explicit Keep PC or Use Sheet resolution. Do not automatically revert optimistic local task changes.
-- New completion mutations wait one hour before automatic upload. Pressing **Sync** explicitly bypasses that delay and removes Undo eligibility once the completion synchronizes. While the exact completion remains Pending and no later mutation exists for that task, its History row may Undo by restoring the persisted pre-completion snapshot and removing that mutation. Synced, conflicted, legacy, and undone records have no Undo action.
-- Completion is compound when minors or locked followers are affected: the main task always completes, one mutation updates the parent, only the minors checked below the sidebar Remark using their independently editable completion dates, and follower activation. Minor dates default to the main Complete Date and no separate minor-completion panel is used. Pending Undo restores all affected snapshots atomically, while conflicts retain the complete before-state.
+## Verification
 
-## API Details
+- Updated: 2026-10-05 13:15 +08:00. Status: confirmed user correction, processed. Do not retain completed work in Discussion solely to await verification, retest or success acknowledgement. The user reports bugs only; silence requires no acknowledgement or verification follow-up. Keep actual checks and unknown runtime verification in progress without claiming tests passed from silence. A reported bug reopens active work; actual unfinished implementation/deployment remains distinct from acknowledgement.
+- After source/project/build changes run the primary Windows build using restored packages:
 
-- Task fetch is `GET <GoogleAppsScriptUrl>?action=tasks&token=<ApiKey>`.
-- Mutations are JSON `POST <GoogleAppsScriptUrl>` with `action`, `token`, `operationId`, `taskId`, `expectedRevision`, and `payload`.
-- Date-only mutation fields such as `executeDate` and `snoozeUntil` must serialize as `yyyy-MM-dd` for Apps Script parsing.
-- `GoogleSheetClient` treats HTTP failures, JSON `{ success: false }`, and HTML/script error bodies as failures.
-- Log token-bearing requests only in redacted or token-free form.
-- Google Task reminders honor Snooze Until as the delayed reminder date. A snooze on expiry creates one task; a snooze after expiry resets the seven-day overdue cadence from its end date.
+```powershell
+$env:MSBUILDDISABLENODEREUSE = "1"
+dotnet build LifeSyncTaskClient.sln --no-restore --disable-build-servers -p:UseSharedCompilation=false -m:1
+```
+
+- If output is locked, stop; never kill the app, clean locked files or change output paths. Say: “Build stopped because the primary build path appears to be locked or in use. Please close the app, then rerun the build. I will not create a secondary build path.”
+- Report build/executable/relevant validation and unverified live behavior separately. Documentation-only work uses inventory/reference/diff checks; no build required. Summarize intentionally changed files before finishing.

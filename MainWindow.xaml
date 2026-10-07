@@ -384,6 +384,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -430,6 +431,7 @@
                                 Background="{Binding DayStateBrush}"
                                 Padding="8,3"
                                 Margin="8,0,0,0"
+                                ToolTip="{Binding DayStateToolTip}"
                                 VerticalAlignment="Top">
                             <TextBlock Text="{Binding DayState}"
                                        Foreground="White"
@@ -468,18 +470,6 @@
                                         Visibility="{Binding AlertVisibility}">
                                     <TextBlock Text="Alert" FontSize="11" FontWeight="SemiBold" Foreground="#1F7A46" />
                                 </Border>
-                                <Border Background="#EAF2FF"
-                                        Padding="6,2"
-                                        Margin="0,0,4,0"
-                                        Visibility="{Binding GoogleTaskVisibility}">
-                                    <TextBlock Text="{Binding GoogleTask}" FontSize="11" Foreground="#2457A6" />
-                                </Border>
-                                <Border Background="#FDECEC"
-                                        Padding="6,2"
-                                        Margin="0,0,4,0"
-                                        Visibility="{Binding SnoozeVisibility}">
-                                    <TextBlock Text="{Binding Snooze}" FontSize="11" Foreground="#8A3B2D" />
-                                </Border>
                                 <Border Background="#EEF2F7"
                                         Padding="6,2"
                                         Visibility="{Binding SyncVisibility}">
@@ -487,6 +477,15 @@
                                 </Border>
                             </StackPanel>
                         </Grid>
+
+                        <StackPanel Grid.Row="2" Grid.ColumnSpan="4" Orientation="Horizontal" Margin="0,7,0,0">
+                            <Border Background="#EAF2FF" BorderBrush="#B8CCEA" BorderThickness="1" Padding="7,3" Margin="0,0,6,0">
+                                <TextBlock Text="{Binding NextGoogleTask}" FontSize="11" FontWeight="SemiBold" Foreground="#2457A6" />
+                            </Border>
+                            <Border Background="#EEF2F7" BorderBrush="#CBD5E1" BorderThickness="1" Padding="7,3">
+                                <TextBlock Text="{Binding LastGoogleTaskCreated}" FontSize="11" Foreground="#27313D" />
+                            </Border>
+                        </StackPanel>
                     </Grid>
                 </Grid>
             </Border>
@@ -576,6 +575,7 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock Text="Loading tasks" VerticalAlignment="Center" Margin="0,0,16,0" Visibility="{Binding IsLoadingTasks, Converter={StaticResource BoolToVisibilityConverter}}" />
                         <TextBlock Text="Marking complete" VerticalAlignment="Center" Margin="0,0,16,0" Visibility="{Binding IsMarkingComplete, Converter={StaticResource BoolToVisibilityConverter}}" />
+                        <TextBlock Text="Retrying pending" VerticalAlignment="Center" Margin="0,0,16,0" Visibility="{Binding IsRetryingPending, Converter={StaticResource BoolToVisibilityConverter}}" />
                         <CheckBox Content="Check-in"
                                   IsChecked="{Binding CheckinCheckboxValue, Mode=OneWay}"
                                   Command="{Binding CheckinCommand}"
@@ -597,6 +597,11 @@
                         <Button ToolTip="Settings" Command="{Binding OpenSettingsCommand}" Style="{StaticResource PngIconButtonStyle}" Margin="0,0,8,0">
                             <Image Source="Assets/Icons/settings.png" Width="20" Height="20" SnapsToDevicePixels="True" />
                         </Button>
+                        <Button Content="{Binding PendingButtonDisplay}"
+                                ToolTip="Review Pending Changes And Failures"
+                                Command="{Binding OpenPendingManagerCommand}"
+                                Margin="0,0,8,0"
+                                Background="#B7791F" />
                         <Button Content="Conflicts"
                                 ToolTip="Review Sync Conflicts"
                                 Command="{Binding OpenTaskConflictsCommand}"
@@ -1070,6 +1075,10 @@
                                 <StackPanel>
                                     <TextBlock Text="Daily Summary" FontSize="18" FontWeight="SemiBold" />
                                     <TextBlock Text="{Binding TaskSummaryDisplay}" Margin="0,4,0,0" Foreground="#546171" />
+                                    <TextBlock Text="G = days until next Google Task. Runs during the 06:00 hour; Warning alone does not create one."
+                                               Margin="0,3,0,0"
+                                               Foreground="#65758B"
+                                               FontSize="11" />
                                 </StackPanel>
                             </Grid>
 
@@ -1193,8 +1202,41 @@
                             BorderThickness="1"
                             Padding="16"
                             Visibility="{Binding IsHistoryView, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Border.Resources>
+                            <Style x:Key="HistoryGridStyle" TargetType="DataGrid">
+                                <Setter Property="AutoGenerateColumns" Value="False" />
+                                <Setter Property="CanUserAddRows" Value="False" />
+                                <Setter Property="CanUserDeleteRows" Value="False" />
+                                <Setter Property="CanUserSortColumns" Value="False" />
+                                <Setter Property="IsReadOnly" Value="True" />
+                                <Setter Property="SelectionMode" Value="Single" />
+                                <Setter Property="SelectionUnit" Value="FullRow" />
+                                <Setter Property="EnableRowVirtualization" Value="True" />
+                                <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+                                <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
+                                <Setter Property="GridLinesVisibility" Value="Horizontal" />
+                                <Setter Property="HeadersVisibility" Value="Column" />
+                                <Setter Property="Background" Value="White" />
+                                <Setter Property="BorderBrush" Value="#D9DEE7" />
+                                <Setter Property="BorderThickness" Value="1" />
+                                <Setter Property="RowHeaderWidth" Value="0" />
+                                <Setter Property="ColumnHeaderHeight" Value="30" />
+                                <Setter Property="RowHeight" Value="34" />
+                                <Setter Property="HorizontalGridLinesBrush" Value="#E5E9F0" />
+                                <Setter Property="CellStyle" Value="{StaticResource TaskGridCellStyle}" />
+                            </Style>
+                            <Style x:Key="HistoryDateTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
+                                <Setter Property="TextAlignment" Value="Right" />
+                            </Style>
+                            <Style x:Key="HistoryDetailTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TaskGridTextStyle}">
+                                <Setter Property="TextWrapping" Value="Wrap" />
+                                <Setter Property="TextTrimming" Value="None" />
+                            </Style>
+                        </Border.Resources>
                         <Grid>
                             <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
@@ -1206,8 +1248,9 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <TextBlock Text="Completion History" FontSize="18" FontWeight="SemiBold" />
-                                    <TextBlock Text="Monthly completion details. Pending completions can be undone during the one-hour delay."
+                                    <TextBlock Text="Monthly overview. Double-click a task for details."
                                                Margin="0,4,0,0"
+                                               TextWrapping="Wrap"
                                                Foreground="#546171" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -1217,28 +1260,87 @@
                                 </StackPanel>
                             </Grid>
 
-                            <DataGrid Grid.Row="1"
-                                      ItemsSource="{Binding CompletionHistoryItems}"
-                                      AutoGenerateColumns="False"
-                                      CanUserAddRows="False"
-                                      CanUserDeleteRows="False"
-                                      CanUserSortColumns="False"
-                                      IsReadOnly="True"
-                                      SelectionMode="Single"
-                                      SelectionUnit="FullRow"
-                                      EnableRowVirtualization="True"
-                                      VirtualizingPanel.IsVirtualizing="True"
-                                      VirtualizingPanel.VirtualizationMode="Recycling"
-                                      GridLinesVisibility="Horizontal"
-                                      HeadersVisibility="Column"
-                                      Background="White"
-                                      BorderBrush="#D9DEE7"
-                                      BorderThickness="1"
-                                      RowHeaderWidth="0"
-                                      ColumnHeaderHeight="30"
-                                      RowHeight="34"
-                                      HorizontalGridLinesBrush="#E5E9F0"
-                                      CellStyle="{StaticResource TaskGridCellStyle}">
+                            <StackPanel Grid.Row="1" Margin="0,0,0,12"
+                                        Visibility="{Binding HasUnsyncedHistoryItems, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <TextBlock Text="{Binding UnsyncedHistoryDisplay}" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                <DataGrid ItemsSource="{Binding UnsyncedHistoryItems}" Style="{StaticResource HistoryGridStyle}"
+                                          MaxHeight="166" AutomationProperties.Name="Unsynced history and Undo">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Task (Category / Type)" Binding="{Binding TaskDisplay}" Width="*" MinWidth="180"
+                                                            ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Completed Date" Binding="{Binding CompletedDateDisplay}" Width="145"
+                                                            ElementStyle="{StaticResource HistoryDateTextStyle}" />
+                                        <DataGridTextColumn Header="Status" Binding="{Binding StateDisplay}" Width="130"
+                                                            ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTemplateColumn Header="Action" Width="90">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Button Content="Undo"
+                                                            Command="{Binding DataContext.UndoCompletionCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                            CommandParameter="{Binding}" Padding="10,3" HorizontalAlignment="Center"
+                                                            Visibility="{Binding CanUndo, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </StackPanel>
+
+                            <Grid Grid.Row="2" Margin="0,0,0,10"
+                                  Visibility="{Binding IsHistorySummaryView, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Search" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <TextBox Grid.Column="1" Text="{Binding HistorySearchText, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="340" Height="30" HorizontalAlignment="Left" VerticalContentAlignment="Center"
+                                         AutomationProperties.Name="Search history by task, category or type" />
+                            </Grid>
+                            <Grid Grid.Row="2" Margin="0,0,0,10"
+                                  Visibility="{Binding IsHistoryDetailView, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button Content="Back" Command="{Binding BackToHistorySummaryCommand}" Padding="14,5" Margin="0,0,12,0" />
+                                <TextBlock Grid.Column="1" Text="{Binding HistoryDetailTaskDisplay}" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" TextWrapping="Wrap" />
+                            </Grid>
+
+                            <Grid Grid.Row="3" Visibility="{Binding IsHistorySummaryView, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <DataGrid ItemsSource="{Binding HistoryTaskSummaries}" Style="{StaticResource HistoryGridStyle}"
+                                          MouseDoubleClick="HistorySummaryGrid_MouseDoubleClick"
+                                          PreviewKeyDown="HistorySummaryGrid_PreviewKeyDown"
+                                          AutomationProperties.Name="Monthly history overview">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Task (Category / Type)" Binding="{Binding TaskDisplay}" Width="*" MinWidth="200"
+                                                            ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                        <DataGridTextColumn Header="Times" Binding="{Binding CompletionCount}" Width="80"
+                                                            ElementStyle="{StaticResource HistoryDateTextStyle}" />
+                                        <DataGridTextColumn Header="Last Completed" Binding="{Binding LastCompletedDateDisplay}" Width="155"
+                                                            ElementStyle="{StaticResource HistoryDateTextStyle}" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                                <TextBlock Text="No history matches this month and search." HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" Foreground="#65758B" IsHitTestVisible="False">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasHistoryTaskSummaries}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+
+                            <DataGrid Grid.Row="3" ItemsSource="{Binding CompletionHistoryItems}"
+                                      Style="{StaticResource HistoryGridStyle}" RowHeight="NaN" MinRowHeight="34"
+                                      Visibility="{Binding IsHistoryDetailView, Converter={StaticResource BoolToVisibilityConverter}}"
+                                      AutomationProperties.Name="Task history details">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Completed Date" Binding="{Binding CompletedDateDisplay}" Width="145" CanUserSort="False">
                                         <DataGridTextColumn.ElementStyle>
@@ -1247,11 +1349,8 @@
                                             </Style>
                                         </DataGridTextColumn.ElementStyle>
                                     </DataGridTextColumn>
-                                    <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="160" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
-                                    <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="160" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
-                                    <DataGridTextColumn Header="Task" Binding="{Binding Task}" Width="*" MinWidth="240" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
-                                    <DataGridTextColumn Header="Remark" Binding="{Binding Remark}" Width="240" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
-                                    <DataGridTextColumn Header="Minor Tasks" Binding="{Binding MinorCompletionSummary}" Width="220" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
+                                    <DataGridTextColumn Header="Remark" Binding="{Binding Remark}" Width="*" MinWidth="160" ElementStyle="{StaticResource HistoryDetailTextStyle}" CanUserSort="False" />
+                                    <DataGridTextColumn Header="Minor Tasks" Binding="{Binding MinorCompletionSummary}" Width="220" ElementStyle="{StaticResource HistoryDetailTextStyle}" CanUserSort="False" />
                                     <DataGridTextColumn Header="Status" Binding="{Binding StateDisplay}" Width="120" ElementStyle="{StaticResource TaskGridTextStyle}" CanUserSort="False" />
                                     <DataGridTemplateColumn Header="Action" Width="90" CanUserSort="False">
                                         <DataGridTemplateColumn.CellTemplate>
@@ -1267,23 +1366,6 @@
                                     </DataGridTemplateColumn>
                                 </DataGrid.Columns>
                             </DataGrid>
-                            <TextBlock Grid.Row="1"
-                                       Text="No completions in this month."
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Foreground="#65758B"
-                                       IsHitTestVisible="False">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding HasCompletionHistoryItems}" Value="True">
-                                                <Setter Property="Visibility" Value="Collapsed" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
                         </Grid>
                     </Border>
 
@@ -1900,6 +1982,109 @@
                                 <Button Content="Cancel" Command="{Binding CancelPauseCommand}" Background="#65758B" />
                             </StackPanel>
                         </StackPanel>
+                    </Border>
+                </Border>
+
+                <Border Grid.RowSpan="3"
+                        Background="#66000000"
+                        Panel.ZIndex="14"
+                        Visibility="{Binding IsPendingManagerOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Border Width="900"
+                            MaxHeight="620"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Background="White"
+                            BorderBrush="#C8CED8"
+                            BorderThickness="1"
+                            Padding="18">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="Pending Changes" FontSize="18" FontWeight="SemiBold" />
+                                <TextBlock Text="Select a change to see why it failed and how to recover it."
+                                           Margin="0,4,0,0"
+                                           Foreground="#546171" />
+                            </StackPanel>
+
+                            <DataGrid Grid.Row="1"
+                                      ItemsSource="{Binding PendingTaskMutations}"
+                                      SelectedItem="{Binding SelectedPendingTaskMutation}"
+                                      AutoGenerateColumns="False"
+                                      CanUserAddRows="False"
+                                      CanUserDeleteRows="False"
+                                      CanUserSortColumns="False"
+                                      IsReadOnly="True"
+                                      RowHeaderWidth="0"
+                                      MinHeight="180"
+                                      MaxHeight="310"
+                                      GridLinesVisibility="Horizontal"
+                                      HorizontalGridLinesBrush="#E5E9F0"
+                                      BorderBrush="#D9DEE7">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Task" Binding="{Binding Payload.Task}" Width="150" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                    <DataGridTextColumn Header="Action" Binding="{Binding OperationDisplay}" Width="135" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                    <DataGridTextColumn Header="Queued" Binding="{Binding QueuedAtDisplay}" Width="145" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                    <DataGridTextColumn Header="Last Attempt" Binding="{Binding LastAttemptDisplay}" Width="145" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                    <DataGridTextColumn Header="Status" Binding="{Binding PendingStatusDisplay}" Width="*" MinWidth="155" ElementStyle="{StaticResource TaskGridTextStyle}" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock Grid.Row="1"
+                                       Text="No pending changes."
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="#65758B"
+                                       IsHitTestVisible="False">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasPendingTaskMutations}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <Border Grid.Row="2" BorderBrush="#D9DEE7" BorderThickness="1" Background="#F8FAFC" Padding="12" Margin="0,14,0,0">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding SelectedPendingTaskMutation}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <StackPanel>
+                                    <TextBlock Text="Last Failure" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding SelectedPendingTaskMutation.LastErrorDisplay}"
+                                               Margin="0,4,0,10"
+                                               Foreground="#8A1F1F"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="How To Resolve" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding SelectedPendingTaskMutation.ResolutionDisplay}"
+                                               Margin="0,4,0,0"
+                                               Foreground="#27313D"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
+                            <Grid Grid.Row="3" Margin="0,14,0,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Retry Selected" Command="{Binding RetrySelectedPendingCommand}" Margin="0,0,8,0" />
+                                    <Button Content="Retry All" Command="{Binding RetryAllPendingCommand}" Background="#1F7A46" />
+                                </StackPanel>
+                                <Button Content="Close" Command="{Binding ClosePendingManagerCommand}" HorizontalAlignment="Right" Background="#65758B" />
+                            </Grid>
+                        </Grid>
                     </Border>
                 </Border>
 

@@ -149,6 +149,30 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void HistorySummaryGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (FindAncestor<DataGridRow>((DependencyObject)e.OriginalSource)?.Item is not HistoryTaskSummary summary
+            || !_viewModel.OpenHistoryTaskDetailsCommand.CanExecute(summary))
+        {
+            return;
+        }
+
+        _viewModel.OpenHistoryTaskDetailsCommand.Execute(summary);
+        e.Handled = true;
+    }
+
+    private void HistorySummaryGrid_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || sender is not DataGrid { SelectedItem: HistoryTaskSummary summary }
+            || !_viewModel.OpenHistoryTaskDetailsCommand.CanExecute(summary))
+        {
+            return;
+        }
+
+        _viewModel.OpenHistoryTaskDetailsCommand.Execute(summary);
+        e.Handled = true;
+    }
+
     private void TaskSummaryList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         TaskSummaryScrollViewer.ScrollToVerticalOffset(TaskSummaryScrollViewer.VerticalOffset - e.Delta);

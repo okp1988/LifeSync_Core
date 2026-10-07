@@ -34,8 +34,90 @@ public sealed class TaskMutation
     public DateTime QueuedAt { get; set; } = DateTime.Now;
     public DateTimeOffset? UploadAfter { get; set; }
     public string State { get; set; } = TaskMutationStates.Pending;
+    public DateTime? LastAttemptAt { get; set; }
+    public string LastError { get; set; } = string.Empty;
     public TaskMutationPayload Payload { get; set; } = new();
     public SheetTask? ServerTask { get; set; }
+
+    [JsonIgnore]
+    public string OperationDisplay => OperationType switch
+    {
+        TaskMutationTypes.Create => "Create Task",
+        TaskMutationTypes.Update => "Edit Task",
+        TaskMutationTypes.UpdateRemark => "Update Remark",
+        TaskMutationTypes.UpdateMinors => "Update Minor Tasks",
+        TaskMutationTypes.Complete => "Complete Task",
+        TaskMutationTypes.Snooze => "Snooze",
+        TaskMutationTypes.ClearSnooze => "Clear Snooze",
+        TaskMutationTypes.Archive => "Archive",
+        TaskMutationTypes.Pause => "Pause",
+        TaskMutationTypes.Resume => "Resume",
+        _ => OperationType
+    };
+
+    [JsonIgnore]
+    public string QueuedAtDisplay => QueuedAt.ToString("dd MMM yyyy HH:mm");
+
+    [JsonIgnore]
+    public string LastAttemptDisplay => LastAttemptAt?.ToString("dd MMM yyyy HH:mm") ?? "Not attempted";
+
+    [JsonIgnore]
+    public string PendingStatusDisplay => !string.IsNullOrWhiteSpace(LastError)
+        ? "Failed"
+        : UploadAfter is DateTimeOffset uploadAfter && uploadAfter > DateTimeOffset.Now
+            ? $"Waiting until {uploadAfter:dd MMM HH:mm}"
+            : "Ready to retry";
+
+    [JsonIgnore]
+    public string LastErrorDisplay => string.IsNullOrWhiteSpace(LastError)
+        ? "No recorded failure."
+        : LastError;
+
+    [JsonIgnore]
+    public string ResolutionDisplay
+    {
+        get
+        {
+            if (LastError.Contains("Unknown action", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Deploy the latest Apps Script web-app version, then retry this change.";
+            }
+
+            if (LastError.Contains("No such host", StringComparison.OrdinalIgnoreCase)
+                || LastError.Contains("name or service not known", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Check the internet connection and DNS access to script.google.com, then retry.";
+            }
+
+            if (LastError.Contains("Apps Script URL is required", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Open Settings, enter the deployed Apps Script URL, save, then retry.";
+            }
+
+            if (LastError.Contains("401", StringComparison.OrdinalIgnoreCase)
+                || LastError.Contains("403", StringComparison.OrdinalIgnoreCase)
+                || LastError.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+                || LastError.Contains("forbidden", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Check the Apps Script deployment access and API key, then retry.";
+            }
+
+            if (OperationType is TaskMutationTypes.UpdateRemark or TaskMutationTypes.UpdateMinors
+                && string.IsNullOrWhiteSpace(LastError))
+            {
+                return "Retry this change. If it reports Unknown action, deploy the latest Apps Script web-app version first.";
+            }
+
+            if (UploadAfter is DateTimeOffset uploadAfter && uploadAfter > DateTimeOffset.Now)
+            {
+                return "This completion is inside its one-hour Undo delay. Retry bypasses the remaining delay.";
+            }
+
+            return string.IsNullOrWhiteSpace(LastError)
+                ? "Retry this change. If it fails, the error and recovery suggestion will appear here."
+                : "Retry the change. If it fails again, review the warning/error log for more detail.";
+        }
+    }
 }
 
 public sealed class TaskMutationPayload

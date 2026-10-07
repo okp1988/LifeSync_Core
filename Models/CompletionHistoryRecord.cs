@@ -25,6 +25,9 @@ public sealed class CompletionHistoryRecord
     public string CompletedDateDisplay => CompletedDate.ToString("dd MMM yyyy");
 
     [JsonIgnore]
+    public string TaskDisplay => $"{Task} ({Category} / {Type})";
+
+    [JsonIgnore]
     public string StateDisplay => State switch
     {
         CompletionHistoryStates.Pending => "Waiting to sync",

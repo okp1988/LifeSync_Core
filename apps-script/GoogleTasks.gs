@@ -12,12 +12,11 @@ function checkExpiredAndCreateGoogleTask() {
       const effectivelyPaused = task.paused && (!resumeDate || resumeDate > today);
       if (!task.taskId || !task.category || !task.task || task.archived || !task.alert
           || effectivelyPaused || (task.predecessorTaskId && !task.isLinkedUnlocked)) continue;
-      const warning = parseDate_(task.warningDate);
       const expired = parseDate_(task.expiredDate);
-      if (!warning || !expired) continue;
+      if (!expired) continue;
       const snoozeUntil = parseDate_(task.snoozeUntil);
 
-      const stage = reminderStage_(today, warning, expired, snoozeUntil);
+      const stage = reminderStage_(today, expired, snoozeUntil);
       if (!stage) continue;
       const cycleKey = dateText_(expired).replaceAll('-', '');
       const reminderKey = `${task.taskId}|${cycleKey}|${stage.key}`;
@@ -38,24 +37,9 @@ function checkExpiredAndCreateGoogleTask() {
   }
 }
 
-function reminderStage_(today, warning, expired, snoozeUntil) {
+function reminderStage_(today, expired, snoozeUntil) {
+  if (today < expired) return null;
   if (snoozeUntil && today < snoozeUntil) return null;
-
-  if (snoozeUntil && snoozeUntil < warning && today < warning) {
-    return {
-      key: `snooze-${dateKey_(snoozeUntil)}`,
-      kind: 'snooze',
-      title: 'Snooze End',
-      overdueDays: 0,
-      dueDate: snoozeUntil
-    };
-  }
-
-  if (today < warning) return null;
-  if (warning < expired && today < expired) {
-    const warningDueDate = snoozeUntil && snoozeUntil > warning ? snoozeUntil : warning;
-    return { key: 'warning', kind: 'warning', title: 'Warning', overdueDays: 0, dueDate: warningDueDate };
-  }
 
   const delayedExpiry = snoozeUntil && snoozeUntil > expired;
   const reminderAnchor = delayedExpiry ? snoozeUntil : expired;
